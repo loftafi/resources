@@ -901,6 +901,7 @@ pub const UniqueWords = @import("unique_words.zig").UniqueWords;
 pub const WordFinder = @import("word_finder.zig").WordFinder;
 pub const encode_uid = @import("base62.zig").encode;
 pub const decode_uid = @import("base62.zig").decode;
+pub const seed = @import("random.zig").seed;
 pub const random = @import("random.zig").random;
 pub const random_u64 = @import("random.zig").random_u64;
 
