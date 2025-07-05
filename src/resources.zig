@@ -688,7 +688,7 @@ pub fn lessThan(_: void, self: *Resource, other: *Resource) bool {
 }
 
 /// Describes a table of contents entry in a bundle file.
-const BundleResource = struct {
+pub const BundleResource = struct {
     uid: u64,
     size: u32,
     type: u8,
@@ -894,8 +894,15 @@ const ArrayList = std.ArrayList;
 const log = std.log;
 const eql = @import("std").mem.eql;
 const Allocator = std.mem.Allocator;
+
 const settings = @import("settings.zig");
-const UniqueWords = @import("unique_words.zig").UniqueWords;
+pub const Setting = settings.Setting;
+pub const UniqueWords = @import("unique_words.zig").UniqueWords;
+pub const WordFinder = @import("word_finder.zig").WordFinder;
+pub const encode_uid = @import("base62.zig").encode;
+pub const decode_uid = @import("base62.zig").decode;
+pub const random = @import("random.zig").random;
+pub const random_u64 = @import("random.zig").random_u64;
 
 const praxis = @import("praxis");
 const Parser = praxis.Parser;
@@ -910,8 +917,6 @@ const append_u32 = BinaryWriter.append_u32;
 const append_u24 = BinaryWriter.append_u24;
 const append_u16 = BinaryWriter.append_u16;
 const append_u8 = BinaryWriter.append_u8;
-const random = @import("random.zig").random;
-const random_u64 = @import("random.zig").random_u64;
 
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
