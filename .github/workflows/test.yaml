@@ -1,0 +1,17 @@
+name: Resources Tests
+
+on:
+  push: 
+    branches: [master, experimental]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Build and Test Resources
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+      - run: zig build test
+
