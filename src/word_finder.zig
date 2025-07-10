@@ -8,7 +8,16 @@ pub const WordFinder = struct {
         };
     }
 
-    pub fn next(self: *WordFinder) error{ Utf8EncodesSurrogateHalf, Utf8CodepointTooLarge, Utf8OverlongEncoding, Utf8ExpectedContinuation, Utf8InvalidStartByte }!?[]const u8 {
+    /// Skip over any punctuation characters and return the next
+    /// string value in the data. Returns null when no more words are
+    /// available.
+    pub fn next(self: *WordFinder) error{
+        Utf8EncodesSurrogateHalf,
+        Utf8CodepointTooLarge,
+        Utf8OverlongEncoding,
+        Utf8ExpectedContinuation,
+        Utf8InvalidStartByte,
+    }!?[]const u8 {
         if (self.data.len == 0) return null;
 
         while (self.data.len > 0 and is_not_word(self.data[0])) {
