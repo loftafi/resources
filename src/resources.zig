@@ -115,17 +115,18 @@ pub const Resources = struct {
         arena.* = std.heap.ArenaAllocator.init(parent_allocator);
         const arena_allocator = arena.allocator();
 
-        var resources = try parent_allocator.create(Resources);
-        resources.arena = arena;
-        resources.arena_allocator = arena_allocator;
-        resources.parent_allocator = parent_allocator;
-        resources.by_uid = std.AutoHashMap(u64, *Resource).init(arena_allocator);
-        resources.by_word = SearchIndex(*Resource, lessThan).init(arena_allocator);
-        resources.by_filename = SearchIndex(*Resource, lessThan).init(arena_allocator);
-        resources.folder = "";
-        resources.bundle_file = "";
-        //resources.used_resource_list = null;
-        resources.used_resource_list = ArrayList(*Resource).init(arena_allocator);
+        const resources = try parent_allocator.create(Resources);
+        resources.* = Resources{
+            .by_uid = std.AutoHashMap(u64, *Resource).init(arena_allocator),
+            .by_word = SearchIndex(*Resource, lessThan).init(arena_allocator),
+            .by_filename = SearchIndex(*Resource, lessThan).init(arena_allocator),
+            .arena = arena,
+            .arena_allocator = arena_allocator,
+            .parent_allocator = parent_allocator,
+            .folder = "",
+            .bundle_file = "",
+            .used_resource_list = ArrayList(*Resource).init(arena_allocator),
+        };
 
         return resources;
     }
@@ -923,6 +924,15 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualDeep = std.testing.expectEqualDeep;
 const expectEqualStrings = std.testing.expectEqualStrings;
+
+test "resource init" {
+    var resources = try Resources.create(std.testing.allocator);
+    defer resources.destroy();
+    try expectEqual(0, resources.by_filename.slices.items.len);
+    try expectEqual(0, resources.by_word.slices.items.len);
+    try expectEqual(0, resources.by_uid.count());
+    try expectEqual(0, resources.bundle_file.len);
+}
 
 test "read resource info" {
     const text = "i:f43ih\nd:202309072345\nc:copy\ns:ὁ ἄρτος.\nv:true\n\n";
