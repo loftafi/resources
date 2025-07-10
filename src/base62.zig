@@ -40,7 +40,11 @@ pub fn encode(comptime I: type, uid: I, result: *[40:0]u8) []const u8 {
     return result[0..i];
 }
 
-pub fn decode(comptime I: type, text: []const u8) error{ InvalidBase62, IntegerOverflow }!I {
+/// Convert a base62 encoded string back to an integer.
+pub fn decode(comptime I: type, text: []const u8) error{
+    InvalidBase62,
+    IntegerOverflow,
+}!I {
     var uid: I = 0;
     var i = text.len;
     while (i > 0) {

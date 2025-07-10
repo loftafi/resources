@@ -1,6 +1,12 @@
+//! A simple random number generator useful for games that do not need
+//! cryptographically secure random numbers.
+
 var value: usize = 99;
 
-/// Return a number greate than zero, and less than the `limit`
+/// Return a number greate than zero, and less than the `limit`. Call `seed()`
+/// first if you do not want a predictable sequence of numbers.
+///
+/// This is _not_ cryptographically secure.
 pub fn random(limit: usize) usize {
     if (limit == 0) {
         return 0;
@@ -11,6 +17,10 @@ pub fn random(limit: usize) usize {
     return value % limit;
 }
 
+/// Return a random u64 value. Call `seed()` first if you do not want a
+/// predictable number sequence.
+///
+/// This is _not_ cryptographically secure.
 pub inline fn random_u64() u64 {
     return @as(u64, random(std.math.maxInt(u64)));
 }

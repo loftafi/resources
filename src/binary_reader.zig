@@ -71,11 +71,6 @@ inline fn move(self: *Self, bytes: usize) void {
     self.index += bytes;
 }
 
-//const b1: u32 = self.data[0];
-//const b2: u32 = self.data[1];
-//const b3: u32 = self.data[2];
-//const b4: u32 = self.data[3];
-//return b1 + (b2 << 8) + (b3 << 16) + (b4 << 24);
 pub fn @"u32"(self: *Self) error{unexpected_eof}!u32 {
     if (self.data.len < 4) {
         return error.unexpected_eof;
@@ -85,10 +80,6 @@ pub fn @"u32"(self: *Self) error{unexpected_eof}!u32 {
     return value;
 }
 
-//const b1: u24 = self.data[0];
-//const b2: u24 = self.data[1];
-//const b3: u24 = self.data[2];
-//return b1 + (@as(u24, b2) << 8) + (@as(u24, b3) << 16);
 pub fn @"u24"(self: *Self) error{unexpected_eof}!u24 {
     if (self.data.len < 3) {
         return error.unexpected_eof;
@@ -98,9 +89,6 @@ pub fn @"u24"(self: *Self) error{unexpected_eof}!u24 {
     return value;
 }
 
-//const b1: u8 = self.data[0];
-//const b2: u8 = self.data[1];
-//return b1 + (@as(u16, b2) << 8);
 pub fn @"u16"(self: *Self) error{unexpected_eof}!u16 {
     if (self.data.len < 2) {
         return error.unexpected_eof;
