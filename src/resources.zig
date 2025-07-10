@@ -320,9 +320,23 @@ pub const Resources = struct {
     // Load the full list of usable files inside the `folder` along with
     // any associated metadata files so that each file can be searched for
     // and loaded.
-    pub fn load_directory(self: *Resources, folder: []const u8) error{ OutOfMemory, ReadRepoFileFailed, InvalidResourceUID, MetadataMissing, ReadMetadataFailed, Utf8InvalidStartByte, Utf8ExpectedContinuation, Utf8OverlongEncoding, Utf8EncodesSurrogateHalf, Utf8CodepointTooLarge }!bool {
-        var dir = std.fs.cwd().openDir(folder, .{}) catch |e| {
-            log.warn("Resource loader failed opening {s}. Error: {any}", .{ folder, e });
+    pub fn load_directory(self: *Resources, folder: []const u8) error{
+        OutOfMemory,
+        ReadRepoFileFailed,
+        InvalidResourceUID,
+        MetadataMissing,
+        ReadMetadataFailed,
+        Utf8InvalidStartByte,
+        Utf8ExpectedContinuation,
+        Utf8OverlongEncoding,
+        Utf8EncodesSurrogateHalf,
+        Utf8CodepointTooLarge,
+    }!bool {
+        var dir = std.fs.cwd().openDir(folder, .{ .iterate = true }) catch |e| {
+            log.warn(
+                "Failed opening resource directory {s}. Error: {any}",
+                .{ folder, e },
+            );
             return false;
         };
         defer dir.close();
