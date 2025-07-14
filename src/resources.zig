@@ -118,8 +118,8 @@ pub const Resources = struct {
         const resources = try parent_allocator.create(Resources);
         resources.* = Resources{
             .by_uid = std.AutoHashMap(u64, *Resource).init(arena_allocator),
-            .by_word = SearchIndex(*Resource, lessThan).init(arena_allocator),
-            .by_filename = SearchIndex(*Resource, lessThan).init(arena_allocator),
+            .by_word = SearchIndex(*Resource, lessThan).init(),
+            .by_filename = SearchIndex(*Resource, lessThan).init(),
             .arena = arena,
             .arena_allocator = arena_allocator,
             .parent_allocator = parent_allocator,
@@ -158,8 +158,8 @@ pub const Resources = struct {
         self.by_uid.deinit();
 
         // Relese the other indexes into the resources
-        self.by_word.deinit();
-        self.by_filename.deinit();
+        self.by_word.deinit(self.arena_allocator);
+        self.by_filename.deinit(self.arena_allocator);
         if (self.folder.len > 0) {
             self.arena_allocator.free(self.folder);
         }
@@ -211,7 +211,7 @@ pub const Resources = struct {
 
             try self.by_uid.put(r.uid, r);
             for (r.sentences.items) |sentence| {
-                try self.by_filename.add(sentence, r);
+                try self.by_filename.add(self.arena_allocator, sentence, r);
             }
 
             var unique = UniqueWords.init(self.arena_allocator);
@@ -220,7 +220,7 @@ pub const Resources = struct {
             var it = unique.words.iterator();
             while (it.next()) |word| {
                 if (word.key_ptr.*.len > 0) {
-                    try self.by_word.add(word.key_ptr.*, r);
+                    try self.by_word.add(self.arena_allocator, word.key_ptr.*, r);
                 } else {
                     std.debug.print("empty sentence keyword in {s}\n", .{encode(u64, r.uid, buffer[0..40 :0])});
                 }
@@ -434,13 +434,13 @@ pub const Resources = struct {
             }
 
             try self.by_uid.put(resource.uid, resource);
-            self.by_filename.add(file_info.name, resource) catch |e| {
+            self.by_filename.add(self.arena_allocator, file_info.name, resource) catch |e| {
                 log.err("error: invalid metadata in file {any} {s} {any}\n", .{ resource.uid, filename.items, e });
                 return error.ReadMetadataFailed;
             };
             for (resource.sentences.items) |sentence| {
                 if (!std.mem.eql(u8, file_info.name, sentence)) {
-                    self.by_filename.add(sentence, resource) catch |e| {
+                    self.by_filename.add(self.arena_allocator, sentence, resource) catch |e| {
                         log.err("error: invalid metadata in file {any} {s} {any}\n", .{ resource.uid, filename.items, e });
                         return error.ReadMetadataFailed;
                     };
@@ -453,7 +453,7 @@ pub const Resources = struct {
             var it = unique.words.iterator();
             while (it.next()) |word| {
                 if (word.key_ptr.*.len > 0) {
-                    self.by_word.add(word.key_ptr.*, resource) catch |e| {
+                    self.by_word.add(self.arena_allocator, word.key_ptr.*, resource) catch |e| {
                         log.err("error: invalid metadata in file {any} {s} {any}\n", .{ resource.uid, filename.items, e });
                         return error.ReadMetadataFailed;
                     };
