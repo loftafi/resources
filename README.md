@@ -3,8 +3,39 @@
 This zig module supports loading, searching, and bundling resources
 into a bundle for distribution.
 
+## Example usage
+
+```zig
+// Load a repository folder of files (with metadata files)
+var bucket = try Resources.create(allocator);
+defer bucket.destroy();
+_ = bucket.load_directory(folder) catch |e| {
+    std.debug.print("error {any} while loading {s}\n", .{ e, folder });
+    return Error.FailedReadingRepo;
+};
+
+// Load a resource bundle of files.
+bucket.load_bundle("/path/to/bundle");
+
+// Search for a resource by filename or word in a filename
+var results: std.ArrayListUnmanaged(*Resource) = .empty.
+defer results.deinit(allocator);
+try bucket.search(keywords.items, .any, &results);
+for (results.items) |resource| {
+    std.debug.print(" {d}  {s}\n", .{resource.uid, sentence});
+}
+
+// Load a file from the resource bucket
+const data = resources.read_data(resource, allocator) catch |e| {
+    if (e == error.OutOfMemory) return error.OutOfMemory;
+    if (e == error.FileNotFound) return error.ResourceNotFound;
+    return error.ResourceReadError;
+};
+```
+
+## License
+
 This code is released under the terms of the MIT license. This
 code is useful for my purposes. No warrantee is given or implied
 that this library will be suitable for your purpose and no warantee
 is given or implied that this code is free from defects.
-

@@ -6,8 +6,8 @@
 
     .dependencies = .{
         .praxis = .{
-            .url = "git+https://github.com/loftafi/praxis.git#88063206b43a36296cae30f70fa0bc57b522fe48",
-            .hash = "praxis-0.0.6-FPf2NQlSBAAqxeJPwt1QE1JXoRaFMPj3U-erNdGbpxDL",
+            .url = "git+https://github.com/loftafi/praxis.git#fd7d79bbc7197747d63256502ce7ca52bb269537",
+            .hash = "praxis-0.1.4-FPf2NRDWBAC1g7jKphZzI4XHT4bwYKKgWEzQuUC87BWT",
         },
     },
 
