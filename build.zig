@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     // Prepare praxis module
     const praxis = b.dependency("praxis", .{});
@@ -23,16 +24,16 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(lib);
 
-    const lib_unit_tests = b.addTest(.{
-        .root_module = lib_mod,
+    const tests = b.addTest(.{
+        //.root_module = lib_mod,
+        .root_source_file = b.path("src/test.zig"),
+        .filters = test_filters,
     });
-    //lib_unit_tests.root_module.addAnonymousImport("byz_parsing", .{
-    //    .root_source_file = b.path("./test/byz-parsing.txt"),
-    //});
+    tests.root_module.addImport("praxis", praxis_module);
 
-    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+    const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_lib_unit_tests.step);
+    test_step.dependOn(&run_tests.step);
 
     const install_docs = b.addInstallDirectory(.{
         .source_dir = lib.getEmittedDocs(),

@@ -31,6 +31,10 @@ const data = resources.read_data(resource, allocator) catch |e| {
     if (e == error.FileNotFound) return error.ResourceNotFound;
     return error.ResourceReadError;
 };
+
+// Save the contents of a list of resources into a bundle
+buket.save_bundle("/path/to/bundle", results);
+
 ```
 
 ## License

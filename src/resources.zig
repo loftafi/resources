@@ -903,42 +903,6 @@ fn load_file_byte_slice(allocator: Allocator, filename: []const u8, offset: usiz
     return buffer;
 }
 
-const builtin = @import("builtin");
-const std = @import("std");
-const ArrayList = std.ArrayList;
-const log = std.log;
-const eql = @import("std").mem.eql;
-const Allocator = std.mem.Allocator;
-
-const settings = @import("settings.zig");
-pub const Setting = settings.Setting;
-pub const UniqueWords = @import("unique_words.zig").UniqueWords;
-pub const WordFinder = @import("word_finder.zig").WordFinder;
-pub const encode_uid = @import("base62.zig").encode;
-pub const decode_uid = @import("base62.zig").decode;
-pub const seed = @import("random.zig").seed;
-pub const random = @import("random.zig").random;
-pub const random_u64 = @import("random.zig").random_u64;
-
-const praxis = @import("praxis");
-const Parser = praxis.Parser;
-const SearchIndex = praxis.SearchIndex;
-
-const encode = @import("base62.zig").encode;
-const decode = @import("base62.zig").decode;
-const BinaryReader = @import("binary_reader.zig");
-const BinaryWriter = @import("binary_writer.zig");
-const append_u64 = BinaryWriter.append_u64;
-const append_u32 = BinaryWriter.append_u32;
-const append_u24 = BinaryWriter.append_u24;
-const append_u16 = BinaryWriter.append_u16;
-const append_u8 = BinaryWriter.append_u8;
-
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-const expectEqualDeep = std.testing.expectEqualDeep;
-const expectEqualStrings = std.testing.expectEqualStrings;
-
 test "resource init" {
     var resources = try Resources.create(std.testing.allocator);
     defer resources.destroy();
@@ -1100,3 +1064,44 @@ test "bundle" {
     try expectEqualStrings(data1, data1b);
     try expectEqualStrings(data2, data2b);
 }
+
+const builtin = @import("builtin");
+const std = @import("std");
+const ArrayList = std.ArrayList;
+const log = std.log;
+const eql = @import("std").mem.eql;
+const Allocator = std.mem.Allocator;
+
+const settings = @import("settings.zig");
+pub const Setting = settings.Setting;
+pub const UniqueWords = @import("unique_words.zig").UniqueWords;
+pub const WordFinder = @import("word_finder.zig").WordFinder;
+pub const encode_uid = @import("base62.zig").encode;
+pub const decode_uid = @import("base62.zig").decode;
+pub const seed = @import("random.zig").seed;
+pub const random = @import("random.zig").random;
+pub const random_u64 = @import("random.zig").random_u64;
+
+pub const ScaleMode = @import("export_image.zig").ScaleMode;
+pub const Size = @import("export_image.zig").Size;
+pub const expand_over_bounds = @import("export_image.zig").expand_over_bounds;
+pub const keep_within_bounds = @import("export_image.zig").keep_within_bounds;
+
+const praxis = @import("praxis");
+const Parser = praxis.Parser;
+const SearchIndex = praxis.SearchIndex;
+
+const encode = @import("base62.zig").encode;
+const decode = @import("base62.zig").decode;
+const BinaryReader = @import("binary_reader.zig");
+const BinaryWriter = @import("binary_writer.zig");
+const append_u64 = BinaryWriter.append_u64;
+const append_u32 = BinaryWriter.append_u32;
+const append_u24 = BinaryWriter.append_u24;
+const append_u16 = BinaryWriter.append_u16;
+const append_u8 = BinaryWriter.append_u8;
+
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
+const expectEqualDeep = std.testing.expectEqualDeep;
+const expectEqualStrings = std.testing.expectEqualStrings;
