@@ -9,12 +9,16 @@ pub fn build(b: *std.Build) void {
     const praxis = b.dependency("praxis", .{});
     const praxis_module = praxis.module("praxis");
 
+    const zstbi = b.dependency("zstbi", .{});
+    const zstbi_module = zstbi.module("root");
+
     const lib_mod = b.addModule("resources", .{
         .root_source_file = b.path("src/resources.zig"),
         .target = target,
         .optimize = optimize,
     });
     lib_mod.addImport("praxis", praxis_module);
+    lib_mod.addImport("zstbi", zstbi_module);
 
     const lib = b.addLibrary(.{
         .linkage = .static,
@@ -30,6 +34,7 @@ pub fn build(b: *std.Build) void {
         .filters = test_filters,
     });
     tests.root_module.addImport("praxis", praxis_module);
+    tests.root_module.addImport("zstbi", zstbi_module);
 
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");

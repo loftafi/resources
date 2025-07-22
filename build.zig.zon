@@ -9,6 +9,10 @@
             .url = "git+https://github.com/loftafi/praxis.git#fd7d79bbc7197747d63256502ce7ca52bb269537",
             .hash = "praxis-0.1.4-FPf2NRDWBAC1g7jKphZzI4XHT4bwYKKgWEzQuUC87BWT",
         },
+        .zstbi = .{
+            .url = "git+https://github.com/zig-gamedev/zstbi#a70604a93988ee553d0ae6a3871726270a6025d5",
+            .hash = "zstbi-0.11.0-dev-L0Ea_9WVBwAO8t0Qbr87vnCEf1QBcNQHbV-O_D0UWYqT",
+        },
     },
 
     .paths = .{
