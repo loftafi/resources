@@ -105,8 +105,8 @@ pub const Resources = struct {
     /// found in wav filename
     by_word: SearchIndex(*Resource, lessThan),
 
-    /// Lookup resource by the name part of the filename, with Greek
-    /// accents normalised.
+    /// Lookup resource by sentence in the metadata, or the the name
+    /// component of the filename:
     by_filename: SearchIndex(*Resource, lessThan),
 
     arena: *std.heap.ArenaAllocator,
@@ -362,8 +362,9 @@ pub const Resources = struct {
 
             switch (file_info.extension) {
                 .wav => {
-                    if (try get_wav_greek_name(self.arena_allocator, file.name)) |name| {
-                        resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, name) catch |e| {
+                    if (try get_wav_greek_name(self.arena_allocator, file.name)) |sentence| {
+                        defer self.arena_allocator.free(sentence);
+                        resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, sentence) catch |e| {
                             std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                             return e;
                         };
@@ -422,6 +423,7 @@ pub const Resources = struct {
                 },
             }
 
+            // Lookup by UID
             if (self.by_uid.contains(resource.uid)) {
                 log.err("error: duplicated uid {any} file {s}\n", .{ resource.uid, filename.items });
                 resource.destroy(self.arena_allocator);
@@ -429,6 +431,7 @@ pub const Resources = struct {
             }
             try self.by_uid.put(resource.uid, resource);
 
+            // Lookup by filename or sentence
             self.by_filename.add(self.arena_allocator, file_info.name, resource) catch |e| {
                 log.err("error: invalid metadata in file {any} {s} {any}\n", .{ resource.uid, filename.items, e });
                 return error.ReadMetadataFailed;
@@ -983,6 +986,9 @@ test "search resources" {
     //try resources.search(.{"κρέα"}, .any, &results);
     //try expectEqual(1, results.items.len);
 
+    try expect(resources.by_filename.index.get("ασεἄρτο") == null);
+    try expect(resources.by_filename.index.get("ἄρτος") != null);
+    try expect(resources.by_filename.index.get("μάχαιρα") != null);
     results.clearRetainingCapacity();
     try resources.lookup("fewhfoihsd4565", .any, &results);
     try expectEqual(0, results.items.len);
