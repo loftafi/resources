@@ -531,8 +531,9 @@ pub const Resources = struct {
         }
     }
 
-    /// Return all resources where the filename or attached sentence
-    /// exactly matches. Undecided if this should be case-insensitive.
+    /// Return all resources where either a sentence or filename associated
+    /// with a resource exactly matches. Full stops at the end of sentences.
+    /// are ignored. Undecided if this should be case-insensitive.
     pub fn lookup(
         self: *Resources,
         sentence: []const u8,
@@ -542,10 +543,18 @@ pub const Resources = struct {
     ) !void {
         const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
         defer sentence_nfc.deinit(self.parent_allocator);
-        const r = self.by_filename.lookup(sentence_nfc.slice);
+        var r = self.by_filename.lookup(sentence_nfc.slice);
         if (r == null) {
-            log.debug("resources.lookup failed to match \"{s}\" {any}", .{ sentence_nfc.slice, category });
-            return;
+            if (std.mem.endsWith(u8, sentence_nfc.slice, ".")) {
+                r = self.by_filename.lookup(sentence_nfc.slice[0 .. sentence_nfc.slice.len - 1]);
+            }
+            if (r == null) {
+                debug("resources.lookup failed to match \"{s}\" {any}", .{
+                    sentence_nfc.slice,
+                    category,
+                });
+                return;
+            }
         }
         for (r.?.exact_accented.items) |x| {
             if (category.matches(x.resource)) {
@@ -1034,6 +1043,9 @@ test "search resources" {
     results.clearRetainingCapacity();
     try resources.lookup("μάχαιρα", .any, true, &results);
     try expectEqual(1, results.items.len);
+    results.clearRetainingCapacity();
+    try resources.lookup("μάχαιρα.", .any, true, &results);
+    try expectEqual(1, results.items.len);
 }
 
 test "file_name_split" {
@@ -1148,6 +1160,7 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const log = std.log;
 const warn = std.log.warn;
+const debug = std.log.debug;
 const eql = @import("std").mem.eql;
 const Allocator = std.mem.Allocator;
 const Normalize = @import("Normalize");
