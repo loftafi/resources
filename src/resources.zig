@@ -371,9 +371,9 @@ pub const Resources = struct {
                 .wav => {
                     if (try get_wav_greek_name(self.parent_allocator, file.name)) |sentence| {
                         defer self.parent_allocator.free(sentence);
-                        const nfc_result = try self.normalise.nfc(self.parent_allocator, sentence);
-                        defer nfc_result.deinit(self.parent_allocator);
-                        resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, nfc_result.slice, self) catch |e| {
+                        const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
+                        defer sentence_nfc.deinit(self.parent_allocator);
+                        resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, sentence_nfc.slice, self) catch |e| {
                             std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                             return e;
                         };
@@ -540,11 +540,11 @@ pub const Resources = struct {
         partial_match: bool,
         results: *ArrayList(*Resource),
     ) !void {
-        const nfc_result = try self.normalise.nfc(self.parent_allocator, sentence);
-        defer nfc_result.deinit(self.parent_allocator);
-        const r = self.by_filename.lookup(nfc_result.slice);
+        const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
+        defer sentence_nfc.deinit(self.parent_allocator);
+        const r = self.by_filename.lookup(sentence_nfc.slice);
         if (r == null) {
-            log.debug("resources.lookup failed to match \"{s}\" {any}", .{ nfc_result.slice, category });
+            log.debug("resources.lookup failed to match \"{s}\" {any}", .{ sentence_nfc.slice, category });
             return;
         }
         for (r.?.exact_accented.items) |x| {
@@ -562,7 +562,7 @@ pub const Resources = struct {
         if (partial_match and results.items.len == 0) {
             for (r.?.partial_match.items) |x| {
                 log.debug("Partial match. Matching {s} {any} == {any} {any}", .{
-                    nfc_result.slice,
+                    sentence_nfc.slice,
                     @tagName(category),
                     x.filename,
                     @tagName(x.resource),
@@ -812,10 +812,13 @@ fn load_metadata(
     };
     defer temp_allocator.free(data);
 
-    const nfc_data = try resources.normalise.nfc(temp_allocator, data);
-    defer nfc_data.deinit(temp_allocator);
+    const data_nfc = try resources.normalise.nfc(temp_allocator, data);
+    defer data_nfc.deinit(temp_allocator);
 
-    var stream = Parser.init(nfc_data.slice);
+    if (data.len != data_nfc.slice.len)
+        warn("metadata file {s} is not nfc.", .{filename});
+
+    var stream = Parser.init(data_nfc.slice);
     while (!stream.eof()) {
         if (settings.next(&stream) catch return error.ReadMetadataFailed) |entry| {
             switch (entry.setting) {
@@ -1144,6 +1147,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const ArrayList = std.ArrayList;
 const log = std.log;
+const warn = std.log.warn;
 const eql = @import("std").mem.eql;
 const Allocator = std.mem.Allocator;
 const Normalize = @import("Normalize");
