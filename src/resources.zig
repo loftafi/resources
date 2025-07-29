@@ -117,14 +117,19 @@ pub const Resources = struct {
     folder: []const u8 = "",
     bundle_file: []const u8 = "",
 
+    normalise: Normalize,
+
     pub fn create(parent_allocator: Allocator) error{OutOfMemory}!*Resources {
         var arena = try parent_allocator.create(std.heap.ArenaAllocator);
         errdefer parent_allocator.destroy(arena);
         arena.* = std.heap.ArenaAllocator.init(parent_allocator);
         const arena_allocator = arena.allocator();
 
+        const normalise = try Normalize.init(arena_allocator);
+
         const resources = try parent_allocator.create(Resources);
         resources.* = Resources{
+            .normalise = normalise,
             .by_uid = std.AutoHashMap(u64, *Resource).init(arena_allocator),
             .by_word = SearchIndex(*Resource, lessThan).init(),
             .by_filename = SearchIndex(*Resource, lessThan).init(),
@@ -140,6 +145,8 @@ pub const Resources = struct {
     }
 
     pub fn destroy(self: *Resources) void {
+        self.normalise.deinit(self.arena_allocator);
+
         if (self.used_resource_list) |manifest| {
             manifest.deinit();
         }
@@ -362,9 +369,11 @@ pub const Resources = struct {
 
             switch (file_info.extension) {
                 .wav => {
-                    if (try get_wav_greek_name(self.arena_allocator, file.name)) |sentence| {
-                        defer self.arena_allocator.free(sentence);
-                        resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, sentence) catch |e| {
+                    if (try get_wav_greek_name(self.parent_allocator, file.name)) |sentence| {
+                        defer self.parent_allocator.free(sentence);
+                        const nfc_result = try self.normalise.nfc(self.parent_allocator, sentence);
+                        defer nfc_result.deinit(self.parent_allocator);
+                        resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, nfc_result.slice, self) catch |e| {
                             std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                             return e;
                         };
@@ -375,7 +384,7 @@ pub const Resources = struct {
                     }
                 },
                 .jpg, .png => {
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, null) catch |e| {
+                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, null, self) catch |e| {
                         if (e == error.InvalidResourceUID) {
                             std.debug.print("skipping invalid UID: {s}\n", .{filename.items});
                             continue;
@@ -387,7 +396,7 @@ pub const Resources = struct {
                     resource.resource = file_info.extension;
                 },
                 .bin => {
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, null) catch |e| {
+                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, null, self) catch |e| {
                         if (e == error.InvalidResourceUID) {
                             std.debug.print("skipping invalid UID: {s}\n", .{filename.items});
                             continue;
@@ -400,7 +409,7 @@ pub const Resources = struct {
                 },
                 .ttf, .otf => {
                     const parts = get_file_type(file.name);
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, parts.name) catch |e| {
+                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, parts.name, self) catch |e| {
                         std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                         return e;
                     };
@@ -408,7 +417,7 @@ pub const Resources = struct {
                     resource.resource = file_info.extension;
                 },
                 .xml, .jpx, .csv, .svg => {
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, file_info.name) catch |e| {
+                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, file_info.name, self) catch |e| {
                         std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                         return e;
                     };
@@ -526,13 +535,16 @@ pub const Resources = struct {
     /// exactly matches. Undecided if this should be case-insensitive.
     pub fn lookup(
         self: *Resources,
-        filename: []const u8,
+        sentence: []const u8,
         category: SearchCategory,
+        partial_match: bool,
         results: *ArrayList(*Resource),
     ) !void {
-        const r = self.by_filename.lookup(filename);
+        const nfc_result = try self.normalise.nfc(self.parent_allocator, sentence);
+        defer nfc_result.deinit(self.parent_allocator);
+        const r = self.by_filename.lookup(nfc_result.slice);
         if (r == null) {
-            log.debug("resources.lookup failed to match \"{s}\" {any}", .{ filename, category });
+            log.debug("resources.lookup failed to match \"{s}\" {any}", .{ nfc_result.slice, category });
             return;
         }
         for (r.?.exact_accented.items) |x| {
@@ -547,10 +559,10 @@ pub const Resources = struct {
                 }
             }
         }
-        if (results.items.len == 0) {
+        if (partial_match and results.items.len == 0) {
             for (r.?.partial_match.items) |x| {
                 log.debug("Partial match. Matching {s} {any} == {any} {any}", .{
-                    filename,
+                    nfc_result.slice,
                     @tagName(category),
                     x.filename,
                     @tagName(x.resource),
@@ -697,17 +709,19 @@ pub const Resource = struct {
     size: usize = 0,
 
     pub fn create(arena_allocator: Allocator) error{OutOfMemory}!*Resource {
-        var resource = try arena_allocator.create(Resource);
+        const resource = try arena_allocator.create(Resource);
         errdefer arena_allocator.destroy(resource);
-        resource.uid = 0;
-        resource.resource = .unknown;
-        resource.sentences = ArrayList([]const u8).init(arena_allocator);
-        resource.filename = null;
-        resource.bundle_offset = null;
-        resource.visible = true;
-        resource.size = 0;
-        resource.date = null;
-        resource.copyright = null;
+        resource.* = .{
+            .uid = 0,
+            .resource = .unknown,
+            .sentences = ArrayList([]const u8).init(arena_allocator),
+            .filename = null,
+            .bundle_offset = null,
+            .visible = true,
+            .size = 0,
+            .date = null,
+            .copyright = null,
+        };
         return resource;
     }
 
@@ -717,6 +731,7 @@ pub const Resource = struct {
         filename: []u8,
         file_type: ResourceType,
         sentence_text: ?[]const u8,
+        resources: *Resources,
     ) error{
         OutOfMemory,
         ReadRepoFileFailed,
@@ -732,7 +747,7 @@ pub const Resource = struct {
                 if (filename.len > 0) {
                     resource.filename = try arena_allocator.dupeZ(u8, filename);
                 }
-                try load_metadata(resource, filename, arena_allocator, parent_allocator);
+                try load_metadata(resources, resource, filename, arena_allocator, parent_allocator);
             },
             .wav => {
                 if (sentence_text == null) {
@@ -776,12 +791,18 @@ pub const Resource = struct {
     }
 };
 
-fn load_metadata(resource: *Resource, filename: []u8, arena_allocator: Allocator, parent_allocator: Allocator) error{ OutOfMemory, MetadataMissing, ReadMetadataFailed, InvalidResourceUID }!void {
+fn load_metadata(
+    resources: *Resources,
+    resource: *Resource,
+    filename: []u8,
+    arena_allocator: Allocator,
+    temp_allocator: Allocator,
+) error{ OutOfMemory, MetadataMissing, ReadMetadataFailed, InvalidResourceUID }!void {
     const l = filename.len - 3;
     filename[l + 0] = 't';
     filename[l + 1] = 'x';
     filename[l + 2] = 't';
-    const data = load_file_bytes(parent_allocator, filename) catch |e| {
+    const data = load_file_bytes(temp_allocator, filename) catch |e| {
         std.debug.print("load_metadata failed reading {s}. Error: {any}\n", .{ filename, e });
         if (e == error.FileNotFound) {
             return error.MetadataMissing;
@@ -789,8 +810,12 @@ fn load_metadata(resource: *Resource, filename: []u8, arena_allocator: Allocator
             return error.ReadMetadataFailed;
         }
     };
-    defer parent_allocator.free(data);
-    var stream = Parser.init(data);
+    defer temp_allocator.free(data);
+
+    const nfc_data = try resources.normalise.nfc(temp_allocator, data);
+    defer nfc_data.deinit(temp_allocator);
+
+    var stream = Parser.init(nfc_data.slice);
     while (!stream.eof()) {
         if (settings.next(&stream) catch return error.ReadMetadataFailed) |entry| {
             switch (entry.setting) {
@@ -942,10 +967,13 @@ test "read resource info space" {
 }
 
 test "load_resource image" {
+    var resources = try Resources.create(std.testing.allocator);
+    defer resources.destroy();
+
     var file = ArrayList(u8).init(std.testing.allocator);
     defer file.deinit();
     try file.appendSlice("./test/repo/GzeBWE.png");
-    const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .png, null);
+    const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .png, null, resources);
     defer resource.destroy(std.testing.allocator);
     try expectEqual(3989967536, resource.uid);
     try expectEqual(true, resource.visible);
@@ -955,10 +983,13 @@ test "load_resource image" {
 }
 
 test "load_resource audio" {
+    var resources = try Resources.create(std.testing.allocator);
+    defer resources.destroy();
+
     var file = ArrayList(u8).init(std.testing.allocator);
     defer file.deinit();
     try file.appendSlice("./test/repo/jay~ἄρτος.wav");
-    const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .wav, "ἄρτος");
+    const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .wav, "ἄρτος", resources);
     defer resource.destroy(std.testing.allocator);
     //try expectEqual(3989967536, resource.uid);
     try expectEqual(true, resource.visible);
@@ -990,15 +1021,15 @@ test "search resources" {
     try expect(resources.by_filename.index.get("ἄρτος") != null);
     try expect(resources.by_filename.index.get("μάχαιρα") != null);
     results.clearRetainingCapacity();
-    try resources.lookup("fewhfoihsd4565", .any, &results);
+    try resources.lookup("fewhfoihsd4565", .any, true, &results);
     try expectEqual(0, results.items.len);
-    try resources.lookup("GzeBWE", .any, &results);
+    try resources.lookup("GzeBWE", .any, true, &results);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("κρέα", .any, &results);
+    try resources.lookup("κρέα", .any, true, &results);
     try expectEqual(2, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("μάχαιρα", .any, &results);
+    try resources.lookup("μάχαιρα", .any, true, &results);
     try expectEqual(1, results.items.len);
 }
 
@@ -1064,9 +1095,9 @@ test "bundle" {
         var results = ArrayList(*Resource).init(std.testing.allocator);
         defer results.deinit();
 
-        try resources.lookup("1122", .any, &results);
+        try resources.lookup("1122", .any, true, &results);
         try expectEqual(1, results.items.len);
-        try resources.lookup("2233", .any, &results);
+        try resources.lookup("2233", .any, true, &results);
         try expectEqual(2, results.items.len);
         try expectEqualStrings("1122", results.items[0].sentences.items[0]);
         try expectEqualStrings("2233", results.items[1].sentences.items[0]);
@@ -1088,11 +1119,11 @@ test "bundle" {
         var results = ArrayList(*Resource).init(std.testing.allocator);
         defer results.deinit();
 
-        try resources.lookup("1122", .any, &results);
+        try resources.lookup("1122", .any, true, &results);
         try expectEqual(1, results.items.len);
-        try resources.lookup("2233", .any, &results);
+        try resources.lookup("2233", .any, true, &results);
         try expectEqual(2, results.items.len);
-        try resources.lookup("abcd", .any, &results);
+        try resources.lookup("abcd", .any, true, &results);
         try expectEqual(3, results.items.len);
         try expectEqualStrings("1122", results.items[0].sentences.items[0]);
         try expectEqualStrings("2233", results.items[1].sentences.items[0]);
@@ -1115,6 +1146,7 @@ const ArrayList = std.ArrayList;
 const log = std.log;
 const eql = @import("std").mem.eql;
 const Allocator = std.mem.Allocator;
+const Normalize = @import("Normalize");
 
 const settings = @import("settings.zig");
 pub const Setting = settings.Setting;
