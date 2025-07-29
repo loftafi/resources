@@ -23,22 +23,26 @@ pub fn exportImage(
     zstbi.init(allocator);
     defer zstbi.deinit();
 
+    // Read the raw image data
     const data = try resources.read_data(resource, allocator);
-
-    var out_file = PathBuf.from(dst);
-    var out_ext = out_file.extension();
-    if (out_ext.is_none()) {
-        err("destination file must have file extension", .{});
-        return error.ExportFilenameMissingExtension;
-    }
-
     var img = try zstbi.Image.loadFromMemory(data, 0);
     defer img.deinit();
 
+    const ext = std.fs.path.extension(to_name);
+    if (!std.ascii.eqlIgnoreCase(ext, ".jpg") and !std.ascii.eqlIgnoreCase(ext, ".png")) {
+        return error.ExportsJpgOrPngOnly;
+    }
+
     const original = img.info();
     if (original.width < 300 or original.height < 300) {
-        warn("WARNING: Exporting very small image. {d}x{d}", .{ original.width, original.height });
+        warn("WARNING: Exporting very small image. {d}x{d}", .{
+            original.width,
+            original.height,
+        });
     }
+
+    info("Exporting image {s} as {s}", .{ resource.filename, to_name });
+
     //println!("Reading image: {:?} colour type is: {:?}", src, img.color());
 
     // JPEG files sometimes need rotation
@@ -64,7 +68,7 @@ pub fn exportImage(
     //    }
     //}
 
-    var target = switch (mode) {
+    const target = switch (mode) {
         .keep_within_bounds => keep_within_bounds(original, bounded),
         .expand_over_bounds => expand_over_bounds(original, bounded),
         .cover => expand_over_bounds(original, bounded),
@@ -77,59 +81,39 @@ pub fn exportImage(
             target.height,
             //image.imageops.FilterType.Lanczos3,
         );
+        img.deinit();
+        img = new_img;
         original = img.info();
     }
 
-    // Crop image if in cover mode
     if (mode == .cover) {
+        // In cover mode, we must also crop.clip after resizing.
         var x: u32 = 0;
         var y: u32 = 0;
-        if (size.width > bounded.width) {
-            x += @intCast(@as(f64, @floatCast((size.width - bounded.width))) / 2.0);
+        if (original.width > bounded.width) {
+            x += @intCast(@as(f64, @floatCast((original.width - bounded.width))) / 2.0);
         }
-        if (size.height > bounded.height) {
-            y += @intCast(@as(f64, @floatCast((height - bounded.height))) / 2.0);
+        if (original.height > bounded.height) {
+            y += @intCast(@as(f64, @floatCast((original.height - bounded.height))) / 2.0);
         }
         @panic("crop not yet supported");
         //img = img.crop(img, x, y, bounded.width, bounded.height);
+        //original = img.info();
     }
 
-    const actual = img.info();
-
-    var file = File.create(dst) catch |f| {
-        err("save image failed. {any}", .{f});
-        return f;
-    };
+    const filename = to_dir.realpathAlloc(allocator, to_name);
+    defer allocator.free(filename);
 
     //let encoder = PngEncoder::new_with_quality(&mut out, CompressionType::Best, FilterType::NoFilter);
     //encoder.encode(&imbuf.into_raw(), target_width, target_height, ColorType::Rgba8);
-    if (out_ext == "jpg") {
-        const format = zstbi.ImageWriteFormat{};
-        zstbi.Image.writeToFile(img, to_filename, format);
-        //var ist = img.to_rgba8();
-        //var encoder = JpegEncoder.new_with_quality(file, 75);
-        //var x = encoder.encode(&ist, actual_width, actual_height, ColorType.Rgba8) catch |f| {
-        //    err("save image failed. {any}", .{f});
-        //    return f;
-        //};
+    if (std.ascii.eqlIgnoreCase(ext, ".jpg")) {
+        const format: zstbi.ImageWriteFormat = .{ .jpg = .{ .quality = 75 } };
+        zstbi.Image.writeToFile(img, filename, format);
+    } else if (std.ascii.eqlIgnoreCase(ext, ".png")) {
+        const format: zstbi.ImageWriteFormat = .png;
+        zstbi.Image.writeToFile(img, filename, format);
     } else {
-        const pr = switch (img.as_rgba8()) {
-            .none => {
-                // Fails here
-                return err("img convert failed in={:?} out={:?}", .{ in_ext, out_ext });
-            },
-            .some => pr,
-        };
-        const pixels_rgba = pr.as_rgba();
-        var size = img.dimensions();
-        var ist = Img.new(pixels_rgba, size.width, size.height);
-        Encoder.new()
-            .with_quality(75)
-            .with_speed(1)
-            .encode_rgba(ist) catch |f| {
-            return err("save image failed. {:?}", .{e});
-        };
-        fi.write_all(res.avif_file.as_slice());
+        unreachable; // only jpg and jpng should reach this code block.
     }
 
     return;
@@ -173,7 +157,7 @@ pub fn keep_within_bounds(original: Size, preferred: Size) Size {
     if (size.width > preferred.width) {
         scale = preferred.width / size.width;
         new_size.width = preferred.width;
-        new_size.height = size.height * scale;
+        new_size.height = @round(size.height * scale);
         size.width = new_size.width;
         size.height = new_size.height;
     }
@@ -181,7 +165,7 @@ pub fn keep_within_bounds(original: Size, preferred: Size) Size {
     if (size.height > preferred.height) {
         scale = preferred.height / size.height;
         new_size.height = preferred.height;
-        new_size.width = size.width * scale;
+        new_size.width = @round(size.width * scale);
     }
 
     return new_size;
@@ -302,6 +286,8 @@ test "test_keep_within_bounds" {
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const err = std.log.err;
+const warn = std.log.warn;
+const info = std.log.info;
 const expectEqual = std.testing.expectEqual;
 const Resource = @import("resources.zig").Resource;
 const Resources = @import("resources.zig").Resources;
