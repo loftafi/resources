@@ -98,9 +98,17 @@ pub const SearchCategory = enum {
 };
 
 pub const Resources = struct {
+    /// Lookup resource by UID in metadata file.
     by_uid: std.AutoHashMap(u64, *Resource),
+
+    /// Lookup resource by word found in sentence in metadata file. Or word
+    /// found in wav filename
     by_word: SearchIndex(*Resource, lessThan),
+
+    /// Lookup resource by the name part of the filename, with Greek
+    /// accents normalised.
     by_filename: SearchIndex(*Resource, lessThan),
+
     arena: *std.heap.ArenaAllocator,
     arena_allocator: Allocator,
     parent_allocator: Allocator,
@@ -133,19 +141,6 @@ pub const Resources = struct {
 
     pub fn destroy(self: *Resources) void {
         if (self.used_resource_list) |manifest| {
-            // Log manifest contents for debugging purposes.
-            var buffer: [40:0]u8 = undefined;
-            log.debug("ManifestStart:", .{});
-            for (manifest.items) |resource| {
-                for (resource.sentences.items) |sentence| {
-                    log.debug(" {s} {s} {any}", .{
-                        encode(u64, resource.uid, &buffer),
-                        sentence,
-                        resource.size,
-                    });
-                }
-            }
-            log.debug("ManifestEnd:\n", .{});
             manifest.deinit();
         }
 
@@ -367,7 +362,7 @@ pub const Resources = struct {
 
             switch (file_info.extension) {
                 .wav => {
-                    if (try self.get_wav_greek_name(file.name)) |name| {
+                    if (try get_wav_greek_name(self.arena_allocator, file.name)) |name| {
                         resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, name) catch |e| {
                             std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                             return e;
@@ -432,8 +427,8 @@ pub const Resources = struct {
                 resource.destroy(self.arena_allocator);
                 continue;
             }
-
             try self.by_uid.put(resource.uid, resource);
+
             self.by_filename.add(self.arena_allocator, file_info.name, resource) catch |e| {
                 log.err("error: invalid metadata in file {any} {s} {any}\n", .{ resource.uid, filename.items, e });
                 return error.ReadMetadataFailed;
@@ -495,35 +490,6 @@ pub const Resources = struct {
             retry += 1;
             log.warn("uid generator generated non-unique uid. retry {d}.", .{retry});
         }
-    }
-
-    // Wav files don't have metadata files, so the metadata is extracted
-    // from the file name itself.
-    fn get_wav_greek_name(self: *Resources, file: []const u8) !?[]const u8 {
-        var i: usize = 4;
-        var end = i;
-
-        while (i < file.len) {
-            const c = file[i];
-            if (c == '~') {
-                return null;
-            }
-            if ((c == '.') or (c >= '0' and c <= '9')) {
-                end = i;
-            }
-            i += 1;
-        }
-        if (end == 4) {
-            return null;
-        }
-
-        const size = end - 4;
-        const slice = self.arena_allocator.alloc(u8, size) catch |e| {
-            std.debug.print("arena allocator error. {any}\n", .{e});
-            return e;
-        };
-        @memcpy(slice, file[4..end]);
-        return slice;
     }
 
     /// Search for a resource which has a sentence that contains the
@@ -859,6 +825,40 @@ fn load_metadata(resource: *Resource, filename: []u8, arena_allocator: Allocator
     }
 }
 
+// Wav files don't have metadata files, so the metadata is extracted
+// from the file name itself.
+fn get_wav_greek_name(allocator: Allocator, file: []const u8) error{OutOfMemory}!?[]const u8 {
+    var tilde: usize = file.len;
+    var end = file.len;
+    var i: usize = 0;
+
+    while (i < file.len) {
+        const c = file[i];
+        if (c == '~') {
+            if (tilde == file.len) {
+                // Remember first tilde
+                tilde = i + 1;
+            } else {
+                // Two tilde filenames are ignored.
+                return null;
+            }
+        }
+        if ((c == '.') or (c >= '0' and c <= '9')) {
+            end = i;
+        }
+        i += 1;
+    }
+    if (end == file.len) return null;
+    var name = file[0..end];
+    if (tilde != file.len) {
+        if (tilde == end) return null;
+        name = file[tilde..end];
+        if (!std.ascii.eqlIgnoreCase("jay", file[0 .. tilde - 1])) return null;
+    }
+
+    return try allocator.dupe(u8, name);
+}
+
 fn is_true(text: []const u8) bool {
     return std.ascii.eqlIgnoreCase(text, "true") or
         std.ascii.eqlIgnoreCase(text, "yes") or
@@ -1003,6 +1003,44 @@ test "file_name_split" {
     const info2 = get_file_type("opens.xml");
     try expectEqualStrings("opens", info2.name);
     try expectEqual(.xml, info2.extension);
+}
+
+test "wav_filename" {
+    const allocator = std.testing.allocator;
+    var resources = try Resources.create(allocator);
+    defer resources.destroy();
+
+    {
+        const name = try get_wav_greek_name(allocator, "fish.wav");
+        defer allocator.free(name.?);
+        try expectEqualStrings("fish", name.?);
+    }
+    {
+        const name = try get_wav_greek_name(allocator, "ἀρτος.wav");
+        defer allocator.free(name.?);
+        try expectEqualStrings("ἀρτος", name.?);
+    }
+    {
+        const name = try get_wav_greek_name(allocator, "jay~ἀρτος.wav");
+        defer allocator.free(name.?);
+        try expectEqualStrings("ἀρτος", name.?);
+    }
+    {
+        const name = try get_wav_greek_name(allocator, "jay~ἀρτος~2.wav");
+        try expectEqual(null, name);
+    }
+    {
+        const name = try get_wav_greek_name(allocator, "jay2~ἀρτος~2.wav");
+        try expectEqual(null, name);
+    }
+    {
+        const name = try get_wav_greek_name(allocator, "other~ἀρτος~2.wav");
+        try expectEqual(null, name);
+    }
+    {
+        const name = try get_wav_greek_name(allocator, "other~ἀρτος.wav");
+        try expectEqual(null, name);
+    }
 }
 
 test "bundle" {
