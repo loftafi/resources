@@ -917,11 +917,11 @@ fn is_true(text: []const u8) bool {
 
 fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) !void {
     const tmp_filename = try std.fmt.allocPrint(gpa, "{s}.{d}", .{ filename, std.time.milliTimestamp() });
-    const file = std.fs.cwd().openFile(
-        tmp_filename,
-        .{ .mode = .write_only },
-    ) catch |e| {
-        log.err("Failed to open file for writing: {s}", .{filename});
+    const file = std.fs.cwd().createFile(tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
+        log.err(
+            "Failed to open file for writing: {s}. {any}",
+            .{ filename, e },
+        );
         return e;
     };
     defer file.close();
