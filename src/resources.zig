@@ -549,11 +549,16 @@ pub const Resources = struct {
                 r = self.by_filename.lookup(sentence_nfc.slice[0 .. sentence_nfc.slice.len - 1]);
             }
             if (r == null) {
-                debug("resources.lookup failed to match \"{s}\" {any}", .{
-                    sentence_nfc.slice,
-                    category,
-                });
-                return;
+                if (std.mem.endsWith(u8, sentence_nfc.slice, "·")) {
+                    r = self.by_filename.lookup(sentence_nfc.slice[0 .. sentence_nfc.slice.len - ("·".len)]);
+                }
+                if (r == null) {
+                    debug("resources.lookup failed to match \"{s}\" {any}", .{
+                        sentence_nfc.slice,
+                        category,
+                    });
+                    return;
+                }
             }
         }
         for (r.?.exact_accented.items) |x| {
@@ -1147,6 +1152,13 @@ test "bundle" {
         try expectEqual(1, resources.used_resource_list.?.items.len);
         data2b = try resources.read_data(results.items[1], std.testing.allocator);
         try expectEqual(2, resources.used_resource_list.?.items.len);
+
+        results.clearRetainingCapacity();
+        try resources.lookup("1122.", .any, true, &results);
+        try expectEqual(1, results.items.len);
+        results.clearRetainingCapacity();
+        try resources.lookup("1122·", .any, true, &results);
+        try expectEqual(1, results.items.len);
     }
     defer std.testing.allocator.free(data1b);
     defer std.testing.allocator.free(data2b);
