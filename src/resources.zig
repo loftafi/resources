@@ -123,11 +123,11 @@ pub const Resources = struct {
         var arena = try parent_allocator.create(std.heap.ArenaAllocator);
         errdefer parent_allocator.destroy(arena);
         arena.* = std.heap.ArenaAllocator.init(parent_allocator);
+
         const arena_allocator = arena.allocator();
-
         const normalise = try Normalize.init(arena_allocator);
-
         const resources = try parent_allocator.create(Resources);
+
         resources.* = Resources{
             .normalise = normalise,
             .by_uid = std.AutoHashMap(u64, *Resource).init(arena_allocator),
@@ -358,6 +358,12 @@ pub const Resources = struct {
 
             if (file_info.extension == .unknown) {
                 continue;
+            }
+
+            const file_nfc = try self.normalise.nfc(self.parent_allocator, file.name);
+            defer file_nfc.deinit(self.parent_allocator);
+            if (file.name.len != file_nfc.slice.len) {
+                warn("Repo file '{s}' is not nfc.", .{file_nfc.slice});
             }
 
             filename.clearRetainingCapacity();
