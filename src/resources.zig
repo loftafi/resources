@@ -829,8 +829,12 @@ fn load_metadata(
     const data_nfc = try resources.normalise.nfc(temp_allocator, data);
     defer data_nfc.deinit(temp_allocator);
 
-    if (data.len != data_nfc.slice.len)
+    if (data.len != data_nfc.slice.len) {
         warn("metadata file {s} is not nfc.", .{filename});
+        write_file_bytes(temp_allocator, filename, data_nfc.slice) catch {
+            warn("update metadata file {s} to nfc failed.", .{filename});
+        };
+    }
 
     var stream = Parser.init(data_nfc.slice);
     while (!stream.eof()) {
@@ -909,6 +913,20 @@ fn is_true(text: []const u8) bool {
         std.ascii.eqlIgnoreCase(text, "yes") or
         std.ascii.eqlIgnoreCase(text, "y") or
         std.ascii.eqlIgnoreCase(text, "1");
+}
+
+fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) !void {
+    const tmp_filename = try std.fmt.allocPrint(gpa, "{s}.{d}", .{ filename, std.time.milliTimestamp() });
+    const file = std.fs.cwd().openFile(
+        tmp_filename,
+        .{ .mode = .write_only },
+    ) catch |e| {
+        log.err("Failed to open file for writing: {s}", .{filename});
+        return e;
+    };
+    defer file.close();
+    try file.writeAll(data);
+    try std.fs.cwd().rename(tmp_filename, filename);
 }
 
 fn load_file_bytes(allocator: Allocator, filename: []const u8) ![]u8 {
