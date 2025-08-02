@@ -1,13 +1,13 @@
 .{
     .name = .resources,
-    .version = "0.0.14",
+    .version = "0.0.15",
     .fingerprint = 0xef66ebae23b04127, // Changing this has security and trust implications.
     .minimum_zig_version = "0.14.1",
 
     .dependencies = .{
         .praxis = .{
-            .url = "git+https://github.com/loftafi/praxis.git#e839acbeada56e56965d9a69dbc5f8db4c4d5e6d",
-            .hash = "praxis-0.1.20-FPf2NUtBBgDzLevKOQxYCIDF8RNZTNvMolRwPdEtaOjf",
+            .url = "git+https://github.com/loftafi/praxis.git#bd828665a17b88df8d67bcc8ee294865765c7c80",
+            .hash = "praxis-0.1.22-FPf2NSdEBgC5pTqDH3VNgJj9JFPGyxW_TmP8tqBl6w7v",
         },
         .zstbi = .{
             .url = "git+https://github.com/zig-gamedev/zstbi#a70604a93988ee553d0ae6a3871726270a6025d5",

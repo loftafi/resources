@@ -363,7 +363,11 @@ pub const Resources = struct {
             const file_nfc = try self.normalise.nfc(self.parent_allocator, file.name);
             defer file_nfc.deinit(self.parent_allocator);
             if (file.name.len != file_nfc.slice.len) {
-                warn("Repo file '{s}' is not nfc.", .{file_nfc.slice});
+                warn("Repo file '{s}' is not nfc. mv \"{s}\" \"{s}\"", .{
+                    file.name,
+                    file.name,
+                    file_nfc.slice,
+                });
             }
 
             filename.clearRetainingCapacity();
@@ -539,7 +543,8 @@ pub const Resources = struct {
 
     /// Return all resources where either a sentence or filename associated
     /// with a resource exactly matches. Full stops at the end of sentences.
-    /// are ignored. Undecided if this should be case-insensitive.
+    /// are ignored. Does not support searching for a single word inside a
+    /// filename, use `search()` for single word keyword search.
     pub fn lookup(
         self: *Resources,
         sentence: []const u8,
@@ -547,26 +552,39 @@ pub const Resources = struct {
         partial_match: bool,
         results: *ArrayList(*Resource),
     ) !void {
+
+        // Normalise to nfc and normalise the characters with index rules.
         const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
         defer sentence_nfc.deinit(self.parent_allocator);
-        var r = self.by_filename.lookup(sentence_nfc.slice);
+        var unaccented = std.BoundedArray(u8, praxis.MAX_WORD_SIZE + 1){};
+        var normalised = std.BoundedArray(u8, praxis.MAX_WORD_SIZE + 1){};
+        try praxis.normalise_word(sentence_nfc.slice, &unaccented, &normalised);
+        const query = normalised.slice();
+
+        // Lookup by exact full filename (excluding extension and prefixes)
+        var r = self.by_filename.lookup(query);
         if (r == null) {
-            if (std.mem.endsWith(u8, sentence_nfc.slice, ".")) {
-                r = self.by_filename.lookup(sentence_nfc.slice[0 .. sentence_nfc.slice.len - 1]);
+            if (std.mem.endsWith(u8, query, ".")) {
+                const trimmed = query[0 .. query.len - 1];
+                r = self.by_filename.lookup(trimmed);
+                //err("didn't find {s}, check {s} found {any}", .{ sentence, trimmed, r != null });
             }
             if (r == null) {
-                if (std.mem.endsWith(u8, sentence_nfc.slice, "·")) {
-                    r = self.by_filename.lookup(sentence_nfc.slice[0 .. sentence_nfc.slice.len - ("·".len)]);
+                if (std.mem.endsWith(u8, query, "·")) {
+                    const trimmed = query[0 .. query.len - ("·".len)];
+                    //err("didn't find {s}, check {s} found {any}", .{ sentence, trimmed, r != null });
+                    r = self.by_filename.lookup(trimmed);
                 }
                 if (r == null) {
                     debug("resources.lookup failed to match \"{s}\" {any}", .{
-                        sentence_nfc.slice,
+                        query,
                         category,
                     });
                     return;
                 }
             }
         }
+
         for (r.?.exact_accented.items) |x| {
             if (category.matches(x.resource)) {
                 try results.append(x);
@@ -1052,15 +1070,27 @@ test "search resources" {
 
     _ = try resources.load_directory("./test/repo/");
 
+    //var i = resources.by_filename.index.keyIterator();
+    //while (i.next()) |key| {
+    //    err("by_filename key = {s}", .{key.*});
+    //}
+
     results.clearRetainingCapacity();
     try resources.search(keywords.items, .any, &results);
     try expectEqual(0, results.items.len);
-    //try resources.search(.{"κρέα"}, .any, &results);
-    //try expectEqual(1, results.items.len);
 
+    // Test files have this exact string
     try expect(resources.by_filename.index.get("ασεἄρτο") == null);
     try expect(resources.by_filename.index.get("ἄρτος") != null);
     try expect(resources.by_filename.index.get("μάχαιρα") != null);
+    try expect(resources.by_filename.index.get("ὁ δαυὶδ λέγει") != null);
+
+    // No test files have this exact string (only mid sentence)
+    try expect(resources.by_filename.index.get("δαυὶδ") == null);
+    try expect(resources.by_filename.index.get("δαυίδ") == null);
+    try expect(resources.by_filename.index.get("ὁ Δαυὶδ λέγει") == null);
+    try expect(resources.by_filename.index.get("ὁ Δαυὶδ λέγει·") == null);
+
     results.clearRetainingCapacity();
     try resources.lookup("fewhfoihsd4565", .any, true, &results);
     try expectEqual(0, results.items.len);
@@ -1075,6 +1105,24 @@ test "search resources" {
     results.clearRetainingCapacity();
     try resources.lookup("μάχαιρα.", .any, true, &results);
     try expectEqual(1, results.items.len);
+    results.clearRetainingCapacity();
+    try resources.lookup("ὁ δαυὶδ λέγει", .any, true, &results);
+    try expectEqual(1, results.items.len);
+    results.clearRetainingCapacity();
+    try resources.lookup("ὁ Δαυὶδ λέγει", .any, true, &results);
+    try expectEqual(1, results.items.len);
+    results.clearRetainingCapacity();
+    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, true, &results);
+    try expectEqual(1, results.items.len);
+
+    results.clearRetainingCapacity();
+    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, true, &results);
+    try expectEqual(1, results.items.len);
+
+    // Not the start of a sentence
+    results.clearRetainingCapacity();
+    try resources.lookup("Δαυὶδ", .any, true, &results);
+    try expectEqual(0, results.items.len);
 }
 
 test "file_name_split" {
@@ -1196,6 +1244,7 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const log = std.log;
 const warn = std.log.warn;
+const err = std.log.err;
 const debug = std.log.debug;
 const eql = @import("std").mem.eql;
 const Allocator = std.mem.Allocator;
