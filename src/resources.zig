@@ -6,7 +6,7 @@
 ///  - When preparing for production, create a resource bundle.
 ///  - Released apps apps use `load_bundle` to load their files from
 ///    a resource bundle.
-pub const Error = error{ FailedReadingRepo, InvalidResourceUID, MetadataMissing, ResourceHasNoFilename };
+pub const Error = error{ FailedReadingRepo, InvalidResourceUID, MetadataMissing, ResourceHasNoFilename, QueryTooLong, QueryEmpty, QueryEncodingError };
 
 /// Supported resource file types
 pub const ResourceType = enum(u8) {
@@ -551,61 +551,64 @@ pub const Resources = struct {
         category: SearchCategory,
         partial_match: bool,
         results: *ArrayList(*Resource),
-    ) !void {
+    ) (error{OutOfMemory} || Error)!void {
 
         // Normalise to nfc and normalise the characters with index rules.
         const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
         defer sentence_nfc.deinit(self.parent_allocator);
         var unaccented = std.BoundedArray(u8, praxis.MAX_WORD_SIZE + 1){};
         var normalised = std.BoundedArray(u8, praxis.MAX_WORD_SIZE + 1){};
-        try praxis.normalise_word(sentence_nfc.slice, &unaccented, &normalised);
+        praxis.normalise_word(sentence_nfc.slice, &unaccented, &normalised) catch |f| {
+            if (f == error.EmptyWord) return error.QueryEmpty;
+            if (f == error.WordTooLong) return error.QueryTooLong;
+            if (f == error.Overflow) return error.QueryTooLong;
+            if (f == error.InvalidUtf8) return error.QueryEncodingError;
+            if (f == error.Utf8ExpectedContinuation) return error.QueryEncodingError;
+            if (f == error.Utf8OverlongEncoding) return error.QueryEncodingError;
+            if (f == error.Utf8EncodesSurrogateHalf) return error.QueryEncodingError;
+            if (f == error.Utf8CodepointTooLarge) return error.QueryEncodingError;
+            unreachable; // unexpected error returned
+        };
         const query = normalised.slice();
 
         // Lookup by exact full filename (excluding extension and prefixes)
-        var r = self.by_filename.lookup(query);
-        if (r == null) {
-            if (std.mem.endsWith(u8, query, ".")) {
-                const trimmed = query[0 .. query.len - 1];
-                r = self.by_filename.lookup(trimmed);
-                //err("didn't find {s}, check {s} found {any}", .{ sentence, trimmed, r != null });
+        if (self.by_filename.lookup(query)) |r| {
+            for (r.exact_accented.items) |x| {
+                if (category.matches(x.resource))
+                    try results.append(x);
             }
-            if (r == null) {
-                if (std.mem.endsWith(u8, query, "·")) {
-                    const trimmed = query[0 .. query.len - ("·".len)];
-                    //err("didn't find {s}, check {s} found {any}", .{ sentence, trimmed, r != null });
-                    r = self.by_filename.lookup(trimmed);
+            if (results.items.len == 0) {
+                for (r.exact_unaccented.items) |x| {
+                    if (category.matches(x.resource))
+                        try results.append(x);
                 }
-                if (r == null) {
-                    debug("resources.lookup failed to match \"{s}\" {any}", .{
-                        query,
-                        category,
+            }
+            if (partial_match and results.items.len == 0) {
+                for (r.partial_match.items) |x| {
+                    debug("Partial match. Matching {s} {any} == {any} {any}", .{
+                        sentence_nfc.slice,
+                        @tagName(category),
+                        x.filename,
+                        @tagName(x.resource),
                     });
-                    return;
-                }
-            }
-        }
-
-        for (r.?.exact_accented.items) |x| {
-            if (category.matches(x.resource)) {
-                try results.append(x);
-            }
-        }
-        if (results.items.len == 0) {
-            for (r.?.exact_unaccented.items) |x| {
-                if (category.matches(x.resource)) {
                     try results.append(x);
                 }
             }
         }
-        if (partial_match and results.items.len == 0) {
-            for (r.?.partial_match.items) |x| {
-                log.debug("Partial match. Matching {s} {any} == {any} {any}", .{
-                    sentence_nfc.slice,
-                    @tagName(category),
-                    x.filename,
-                    @tagName(x.resource),
+
+        if (results.items.len == 0) {
+            if (std.mem.endsWith(u8, query, ".")) {
+                const trimmed = query[0 .. query.len - 1];
+                return self.lookup(trimmed, category, partial_match, results);
+            } else if (std.mem.endsWith(u8, query, "·")) {
+                const trimmed = query[0 .. query.len - ("·".len)];
+                return self.lookup(trimmed, category, partial_match, results);
+            } else {
+                debug("resources.lookup failed to match \"{s}\" {any}", .{
+                    query,
+                    category,
                 });
-                try results.append(x);
+                return;
             }
         }
     }
@@ -630,7 +633,7 @@ pub const Resources = struct {
             }
             for (result.partial_match.items) |*item| {
                 if (category.matches(item.*.resource)) {
-                    log.debug("lookupOne(\"{s}\" {any}) returned partial match", .{
+                    debug("lookupOne(\"{s}\" {any}) returned partial match", .{
                         filename,
                         category,
                     });
@@ -638,7 +641,7 @@ pub const Resources = struct {
                 }
             }
         }
-        log.debug("lookupOne(\"{s}\" {any}) failed to match", .{
+        debug("lookupOne(\"{s}\" {any}) failed to match", .{
             filename,
             @tagName(category),
         });
