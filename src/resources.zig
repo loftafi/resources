@@ -552,6 +552,7 @@ pub const Resources = struct {
         partial_match: bool,
         results: *ArrayList(*Resource),
     ) (error{OutOfMemory} || Error)!void {
+        if (sentence.len == 0) return;
 
         // Normalise to nfc and normalise the characters with index rules.
         const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
@@ -602,6 +603,18 @@ pub const Resources = struct {
                 return self.lookup(trimmed, category, partial_match, results);
             } else if (std.mem.endsWith(u8, query, "·")) {
                 const trimmed = query[0 .. query.len - ("·".len)];
+                return self.lookup(trimmed, category, partial_match, results);
+            } else if (std.mem.endsWith(u8, query, ",")) {
+                const trimmed = query[0 .. query.len - (",".len)];
+                return self.lookup(trimmed, category, partial_match, results);
+            } else if (std.mem.endsWith(u8, query, ";")) {
+                const trimmed = query[0 .. query.len - (";".len)];
+                return self.lookup(trimmed, category, partial_match, results);
+            } else if (std.mem.endsWith(u8, query, "!")) {
+                const trimmed = query[0 .. query.len - ("!".len)];
+                return self.lookup(trimmed, category, partial_match, results);
+            } else if (std.mem.endsWith(u8, query, ":")) {
+                const trimmed = query[0 .. query.len - (":".len)];
                 return self.lookup(trimmed, category, partial_match, results);
             } else {
                 debug("resources.lookup failed to match \"{s}\" {any}", .{
