@@ -6,97 +6,6 @@
 ///  - When preparing for production, create a resource bundle.
 ///  - Released apps apps use `load_bundle` to load their files from
 ///    a resource bundle.
-pub const Error = error{ FailedReadingRepo, InvalidResourceUID, MetadataMissing, ResourceHasNoFilename, QueryTooLong, QueryEmpty, QueryEncodingError };
-
-/// Supported resource file types
-pub const ResourceType = enum(u8) {
-    unknown = 0,
-    wav = 1,
-    png = 2,
-    jpg = 3,
-    svg = 4,
-    ttf = 5,
-    otf = 6,
-    csv = 7,
-    jpx = 8,
-    xml = 9,
-    //json = 10,
-    bin = 11,
-
-    pub fn extension(self: ResourceType) [:0]const u8 {
-        return switch (self) {
-            .wav => "wav",
-            .png => "png",
-            .jpg => "jpg",
-            .svg => "svg",
-            .ttf => "ttf",
-            .otf => "otf",
-            .csv => "csv",
-            .jpx => "jpx",
-            .xml => "xml",
-            //.json => "json",
-            .bin => "bin",
-            else => "unknown",
-        };
-    }
-
-    pub fn dot_extension(self: ResourceType) [:0]const u8 {
-        return switch (self) {
-            .wav => ".wav",
-            .png => ".png",
-            .jpg => ".jpg",
-            .svg => ".svg",
-            .ttf => ".ttf",
-            .otf => ".otf",
-            .csv => ".csv",
-            .jpx => ".jpx",
-            .xml => ".xml",
-            //.json => ".json",
-            .bin => ".bin",
-            else => ".unknown",
-        };
-    }
-};
-
-/// Filter searches by resource type
-pub const SearchCategory = enum {
-    any,
-    audio,
-    image,
-    font,
-    wav,
-    jpg,
-    png,
-    svg,
-    ttf,
-    otf,
-    csv,
-    jpx,
-    xml,
-    //json,
-    bin,
-
-    pub fn matches(self: SearchCategory, value: ResourceType) bool {
-        return switch (self) {
-            .any => true,
-            .audio => value == .wav,
-            .image => value == .png or value == .jpg,
-            .font => value == .ttf or value == .otf,
-            .wav => value == .wav,
-            .jpg => value == .jpg,
-            .png => value == .png,
-            .ttf => value == .ttf,
-            .otf => value == .otf,
-            .csv => value == .csv,
-            .jpx => value == .jpx,
-            .svg => value == .svg,
-            .xml => value == .xml,
-            .bin => value == .bin,
-            //.json => value == .json,
-        };
-    }
-};
-
 pub const Resources = struct {
     /// Lookup resource by UID in metadata file.
     by_uid: std.AutoHashMap(u64, *Resource),
@@ -118,6 +27,55 @@ pub const Resources = struct {
     bundle_file: []const u8 = "",
 
     normalise: Normalize,
+
+    /// Filter searches by resource type
+    pub const SearchCategory = enum {
+        any,
+        audio,
+        image,
+        font,
+        wav,
+        jpg,
+        png,
+        svg,
+        ttf,
+        otf,
+        csv,
+        jpx,
+        xml,
+        //json,
+        bin,
+
+        pub fn matches(self: SearchCategory, value: Resource.Type) bool {
+            return switch (self) {
+                .any => true,
+                .audio => value == .wav,
+                .image => value == .png or value == .jpg,
+                .font => value == .ttf or value == .otf,
+                .wav => value == .wav,
+                .jpg => value == .jpg,
+                .png => value == .png,
+                .ttf => value == .ttf,
+                .otf => value == .otf,
+                .csv => value == .csv,
+                .jpx => value == .jpx,
+                .svg => value == .svg,
+                .xml => value == .xml,
+                .bin => value == .bin,
+                //.json => value == .json,
+            };
+        }
+    };
+
+    pub const Error = error{
+        FailedReadingRepo,
+        InvalidResourceUID,
+        MetadataMissing,
+        ResourceHasNoFilename,
+        QueryTooLong,
+        QueryEmpty,
+        QueryEncodingError,
+    };
 
     pub fn create(parent_allocator: Allocator) error{OutOfMemory}!*Resources {
         var arena = try parent_allocator.create(std.heap.ArenaAllocator);
@@ -695,7 +653,7 @@ pub const Resources = struct {
 
 /// Convert the extension of the file into an enum, and return both the
 /// extension and the name component of a filename.
-fn get_file_type(file: []const u8) struct { name: []const u8, extension: ResourceType } {
+fn get_file_type(file: []const u8) struct { name: []const u8, extension: Resource.Type } {
     if (file.len < 5) {
         return .{ .name = file, .extension = .unknown };
     }
@@ -745,175 +703,6 @@ pub const BundleResource = struct {
     names: []const []const u8,
 };
 
-/// Describes a resource. This inforation may be loaded from a
-/// directory of files or a bundle of files (archive).
-pub const Resource = struct {
-    uid: u64,
-    visible: bool,
-    resource: ResourceType,
-    date: ?[]const u8,
-    copyright: ?[]const u8,
-    sentences: ArrayList([]const u8),
-
-    // on disk resource has a filename
-    filename: ?[:0]u8 = null,
-
-    // bundle resources has a bundle offset
-    bundle_offset: ?u64 = null,
-    size: usize = 0,
-
-    pub fn create(arena_allocator: Allocator) error{OutOfMemory}!*Resource {
-        const resource = try arena_allocator.create(Resource);
-        errdefer arena_allocator.destroy(resource);
-        resource.* = .{
-            .uid = 0,
-            .resource = .unknown,
-            .sentences = ArrayList([]const u8).init(arena_allocator),
-            .filename = null,
-            .bundle_offset = null,
-            .visible = true,
-            .size = 0,
-            .date = null,
-            .copyright = null,
-        };
-        return resource;
-    }
-
-    pub fn load(
-        parent_allocator: Allocator,
-        arena_allocator: Allocator,
-        filename: []u8,
-        file_type: ResourceType,
-        sentence_text: ?[]const u8,
-        resources: *Resources,
-    ) error{
-        OutOfMemory,
-        ReadRepoFileFailed,
-        MetadataMissing,
-        ReadMetadataFailed,
-        InvalidResourceUID,
-    }!*Resource {
-        var resource = try Resource.create(arena_allocator);
-        errdefer resource.destroy(arena_allocator);
-
-        switch (file_type) {
-            .svg, .jpx, .csv, .xml, .png, .jpg, .bin => {
-                if (filename.len > 0) {
-                    resource.filename = try arena_allocator.dupeZ(u8, filename);
-                }
-                try load_metadata(resources, resource, filename, arena_allocator, parent_allocator);
-            },
-            .wav => {
-                if (sentence_text == null) {
-                    return error.MetadataMissing;
-                }
-                if (filename.len > 0) {
-                    resource.filename = try arena_allocator.dupeZ(u8, filename);
-                }
-                try resource.sentences.append(try arena_allocator.dupe(u8, sentence_text.?));
-                resource.visible = true;
-            },
-            .ttf, .otf => {
-                if (sentence_text == null) {
-                    return error.MetadataMissing;
-                }
-                if (filename.len > 0) {
-                    resource.filename = try arena_allocator.dupeZ(u8, filename);
-                }
-                try resource.sentences.append(try arena_allocator.dupe(u8, sentence_text.?));
-                resource.visible = true;
-            },
-            .unknown => {
-                return error.MetadataMissing;
-            },
-        }
-
-        return resource;
-    }
-
-    pub fn destroy(self: *Resource, allocator: Allocator) void {
-        for (self.sentences.items) |s| {
-            if (s.len > 0) allocator.free(s);
-        }
-        self.sentences.deinit();
-
-        if (self.filename != null) allocator.free(self.filename.?);
-        if (self.copyright != null) allocator.free(self.copyright.?);
-        if (self.date != null) allocator.free(self.date.?);
-
-        allocator.destroy(self);
-    }
-};
-
-fn load_metadata(
-    resources: *Resources,
-    resource: *Resource,
-    filename: []u8,
-    arena_allocator: Allocator,
-    temp_allocator: Allocator,
-) error{ OutOfMemory, MetadataMissing, ReadMetadataFailed, InvalidResourceUID }!void {
-    const l = filename.len - 3;
-    filename[l + 0] = 't';
-    filename[l + 1] = 'x';
-    filename[l + 2] = 't';
-    const data = load_file_bytes(temp_allocator, filename) catch |e| {
-        std.debug.print("load_metadata failed reading {s}. Error: {any}\n", .{ filename, e });
-        if (e == error.FileNotFound) {
-            return error.MetadataMissing;
-        } else {
-            return error.ReadMetadataFailed;
-        }
-    };
-    defer temp_allocator.free(data);
-
-    const data_nfc = try resources.normalise.nfc(temp_allocator, data);
-    defer data_nfc.deinit(temp_allocator);
-
-    if (data.len != data_nfc.slice.len) {
-        warn("metadata file {s} is not nfc.", .{filename});
-        write_file_bytes(temp_allocator, filename, data_nfc.slice) catch {
-            warn("update metadata file {s} to nfc failed.", .{filename});
-        };
-    }
-
-    var stream = Parser.init(data_nfc.slice);
-    while (!stream.eof()) {
-        if (settings.next(&stream) catch return error.ReadMetadataFailed) |entry| {
-            switch (entry.setting) {
-                .uid => {
-                    if (entry.value.len > 10) {
-                        resource.uid = decode(u64, entry.value[0..10]) catch {
-                            return error.InvalidResourceUID;
-                        };
-                    } else {
-                        resource.uid = decode(u64, entry.value) catch {
-                            return error.InvalidResourceUID;
-                        };
-                    }
-                    if (resource.uid == 0) {
-                        return error.InvalidResourceUID;
-                    }
-                },
-                .date => {
-                    resource.date = try arena_allocator.dupe(u8, entry.value);
-                },
-                .copyright => {
-                    resource.copyright = try arena_allocator.dupe(u8, entry.value);
-                },
-                .visible => {
-                    resource.visible = is_true(entry.value);
-                },
-                .sentence => {
-                    if (entry.value.len > 0) {
-                        try resource.sentences.append(try arena_allocator.dupe(u8, entry.value));
-                    }
-                },
-                else => {},
-            }
-        }
-    }
-}
-
 // Wav files don't have metadata files, so the metadata is extracted
 // from the file name itself.
 fn get_wav_greek_name(allocator: Allocator, file: []const u8) error{OutOfMemory}!?[]const u8 {
@@ -948,14 +737,7 @@ fn get_wav_greek_name(allocator: Allocator, file: []const u8) error{OutOfMemory}
     return try allocator.dupe(u8, name);
 }
 
-fn is_true(text: []const u8) bool {
-    return std.ascii.eqlIgnoreCase(text, "true") or
-        std.ascii.eqlIgnoreCase(text, "yes") or
-        std.ascii.eqlIgnoreCase(text, "y") or
-        std.ascii.eqlIgnoreCase(text, "1");
-}
-
-fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) !void {
+pub fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) !void {
     const tmp_filename = try std.fmt.allocPrint(gpa, "{s}.{d}", .{ filename, std.time.milliTimestamp() });
     const file = std.fs.cwd().createFile(tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
         log.err(
@@ -969,7 +751,7 @@ fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) !voi
     try std.fs.cwd().rename(tmp_filename, filename);
 }
 
-fn load_file_bytes(allocator: Allocator, filename: []const u8) ![]u8 {
+pub fn load_file_bytes(allocator: Allocator, filename: []const u8) ![]u8 {
     const file = std.fs.cwd().openFile(
         filename,
         .{ .mode = .read_only },
@@ -1275,6 +1057,7 @@ pub const decode_uid = @import("base62.zig").decode;
 pub const seed = @import("random.zig").seed;
 pub const random = @import("random.zig").random;
 pub const random_u64 = @import("random.zig").random_u64;
+pub const Resource = @import("resource.zig").Resource;
 
 pub const ScaleMode = @import("export_image.zig").ScaleMode;
 pub const Size = @import("export_image.zig").Size;
