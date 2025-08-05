@@ -544,12 +544,12 @@ pub const Resources = struct {
             }
             if (partial_match and results.items.len == 0) {
                 for (r.partial_match.items) |x| {
-                    debug("Partial match. Matching {s} {any} == {any} {any}", .{
-                        sentence_nfc.slice,
-                        @tagName(category),
-                        x.filename,
-                        @tagName(x.resource),
-                    });
+                    //debug("Partial match. Matching {s} {any} == {any} {any}", .{
+                    //    sentence_nfc.slice,
+                    //    @tagName(category),
+                    //    x.filename,
+                    //    @tagName(x.resource),
+                    //});
                     try results.append(x);
                 }
             }
@@ -575,10 +575,10 @@ pub const Resources = struct {
                 const trimmed = query[0 .. query.len - (":".len)];
                 return self.lookup(trimmed, category, partial_match, results);
             } else {
-                debug("resources.lookup failed to match \"{s}\" {any}", .{
-                    query,
-                    category,
-                });
+                //debug("resources.lookup failed to match \"{s}\" {any}", .{
+                //    query,
+                //    category,
+                //});
                 return;
             }
         }
