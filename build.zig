@@ -6,14 +6,14 @@ pub fn build(b: *std.Build) void {
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     // Prepare praxis module
-    const praxis = b.dependency("praxis", .{});
+    const praxis = b.dependency("praxis", .{ .target = target, .optimize = optimize });
     const praxis_module = praxis.module("praxis");
 
-    const zstbi = b.dependency("zstbi", .{});
+    const zstbi = b.dependency("zstbi", .{ .target = target, .optimize = optimize });
     const zstbi_module = zstbi.module("root");
     add_imports(b, &target, zstbi_module);
 
-    const zg = b.dependency("zg", .{});
+    const zg = b.dependency("zg", .{ .target = target, .optimize = optimize });
 
     const lib_mod = b.addModule("resources", .{
         .root_source_file = b.path("src/resources.zig"),
