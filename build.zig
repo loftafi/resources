@@ -11,6 +11,7 @@ pub fn build(b: *std.Build) void {
 
     const zstbi = b.dependency("zstbi", .{});
     const zstbi_module = zstbi.module("root");
+    add_imports(b, &target, zstbi_module);
 
     const zg = b.dependency("zg", .{});
 
@@ -52,4 +53,57 @@ pub fn build(b: *std.Build) void {
 
     const docs_step = b.step("docs", "Generate docs into zig-out/docs");
     docs_step.dependOn(&install_docs.step);
+}
+
+pub fn add_imports(
+    b: *std.Build,
+    target: *const std.Build.ResolvedTarget,
+    lib: *std.Build.Module,
+) void {
+    // For TranslateC to work, we need the system library headers
+    switch (target.result.os.tag) {
+        .macos => {
+            const sdk = std.zig.system.darwin.getSdk(b.allocator, b.graph.host.result) orelse
+                @panic("macOS SDK is missing");
+            lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
+                sdk,
+                "/usr/include",
+            }) });
+            lib.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{
+                sdk,
+                "/System/Library/Frameworks",
+            }) });
+        },
+        .ios => {
+            const sdk = std.zig.system.darwin.getSdk(b.allocator, b.graph.host.result) orelse
+                @panic("macOS SDK is missing");
+            lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
+                sdk,
+                "/usr/include",
+            }) });
+            lib.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{
+                sdk,
+                "/System/Library/Frameworks",
+            }) });
+        },
+        .linux => {
+            // When building for android, we need to use the android linux headers
+            const android_ndk = "/Users/macuser/Library/Android/sdk/ndk/27.0.12077973/";
+            lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
+                android_ndk,
+                "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/",
+            }) });
+            lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
+                android_ndk,
+                "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/aarch64-linux-android/",
+            }) });
+        },
+        else => {
+            std.log.debug(
+                "add_imports not supported on {s}",
+                .{@tagName(target.result.os.tag)},
+            );
+            @panic("add_imports only supports macos, ios, and linux. Please add windows support");
+        },
+    }
 }
