@@ -184,7 +184,6 @@ const FindNDK = struct {
         while (iter.next()) |entry| {
             if (std.ascii.eqlIgnoreCase("ANDROID_NDK_HOME", entry.key_ptr.*)) {
                 home = entry.value_ptr.*;
-                std.debug.print("{s}={s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
                 break;
             }
         }
@@ -208,7 +207,6 @@ const FindNDK = struct {
         while (iter.next()) |entry| {
             if (std.ascii.eqlIgnoreCase("ANDROID_SDK_ROOT", entry.key_ptr.*)) {
                 home = entry.value_ptr.*;
-                std.debug.print("{s}={s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
                 break;
             }
         }
@@ -230,14 +228,10 @@ const FindNDK = struct {
         var iter = env_map.iterator();
         var home: ?[]const u8 = null;
         while (iter.next()) |entry| {
-            if (std.ascii.eqlIgnoreCase("HOME", entry.key_ptr.*)) {
+            if (std.ascii.eqlIgnoreCase("HOME", entry.key_ptr.*))
                 home = entry.value_ptr.*;
-                std.debug.print("{s}={s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
-            }
-            if (std.ascii.eqlIgnoreCase("UserProfile", entry.key_ptr.*)) {
+            if (std.ascii.eqlIgnoreCase("UserProfile", entry.key_ptr.*))
                 home = entry.value_ptr.*;
-                std.debug.print("{s}={s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
-            }
         }
         if (home != null) {
             const d = std.fs.openDirAbsolute(home.?, .{}) catch {
