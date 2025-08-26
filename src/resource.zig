@@ -38,7 +38,7 @@ pub const Resource = struct {
         filename: []u8,
         file_type: Resource.Type,
         sentence_text: ?[]const u8,
-        resources: *Resources,
+        normalise: *Normalize,
     ) error{
         OutOfMemory,
         ReadRepoFileFailed,
@@ -54,7 +54,7 @@ pub const Resource = struct {
                 if (filename.len > 0) {
                     resource.filename = try arena_allocator.dupeZ(u8, filename);
                 }
-                try load_metadata(resources, resource, filename, arena_allocator, parent_allocator);
+                try load_metadata(normalise, resource, filename, arena_allocator, parent_allocator);
             },
             .wav => {
                 if (sentence_text == null) {
@@ -149,7 +149,7 @@ pub const Resource = struct {
 };
 
 fn load_metadata(
-    resources: *Resources,
+    normalise: *Normalize,
     resource: *Resource,
     filename: []u8,
     arena_allocator: Allocator,
@@ -169,7 +169,7 @@ fn load_metadata(
     };
     defer temp_allocator.free(data);
 
-    const data_nfc = try resources.normalise.nfc(temp_allocator, data);
+    const data_nfc = try normalise.nfc(temp_allocator, data);
     defer data_nfc.deinit(temp_allocator);
 
     if (data.len != data_nfc.slice.len) {
@@ -228,6 +228,8 @@ const std = @import("std");
 const warn = std.log.warn;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
+
+const Normalize = @import("Normalize");
 
 pub const encode_uid = @import("base62.zig").encode;
 pub const decode_uid = @import("base62.zig").decode;

@@ -341,7 +341,7 @@ pub const Resources = struct {
                         defer self.parent_allocator.free(sentence);
                         const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
                         defer sentence_nfc.deinit(self.parent_allocator);
-                        resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, sentence_nfc.slice, self) catch |e| {
+                        resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, sentence_nfc.slice, &self.normalise) catch |e| {
                             std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                             return e;
                         };
@@ -352,7 +352,7 @@ pub const Resources = struct {
                     }
                 },
                 .jpg, .png => {
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, null, self) catch |e| {
+                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, null, &self.normalise) catch |e| {
                         if (e == error.InvalidResourceUID) {
                             std.debug.print("skipping invalid UID: {s}\n", .{filename.items});
                             continue;
@@ -364,7 +364,7 @@ pub const Resources = struct {
                     resource.resource = file_info.extension;
                 },
                 .bin => {
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, null, self) catch |e| {
+                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, null, &self.normalise) catch |e| {
                         if (e == error.InvalidResourceUID) {
                             std.debug.print("skipping invalid UID: {s}\n", .{filename.items});
                             continue;
@@ -377,7 +377,7 @@ pub const Resources = struct {
                 },
                 .ttf, .otf => {
                     const parts = get_file_type(file.name);
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, parts.name, self) catch |e| {
+                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, parts.name, &self.normalise) catch |e| {
                         std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                         return e;
                     };
@@ -385,7 +385,7 @@ pub const Resources = struct {
                     resource.resource = file_info.extension;
                 },
                 .xml, .jpx, .csv, .svg => {
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, file_info.name, self) catch |e| {
+                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, file_info.name, &self.normalise) catch |e| {
                         std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                         return e;
                     };
@@ -830,7 +830,7 @@ test "load_resource image" {
     var file = ArrayList(u8).init(std.testing.allocator);
     defer file.deinit();
     try file.appendSlice("./test/repo/GzeBWE.png");
-    const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .png, null, resources);
+    const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .png, null, &resources.normalise);
     defer resource.destroy(std.testing.allocator);
     try expectEqual(3989967536, resource.uid);
     try expectEqual(true, resource.visible);
@@ -846,7 +846,7 @@ test "load_resource audio" {
     var file = ArrayList(u8).init(std.testing.allocator);
     defer file.deinit();
     try file.appendSlice("./test/repo/jay~ἄρτος.wav");
-    const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .wav, "ἄρτος", resources);
+    const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .wav, "ἄρτος", &resources.normalise);
     defer resource.destroy(std.testing.allocator);
     //try expectEqual(3989967536, resource.uid);
     try expectEqual(true, resource.visible);
