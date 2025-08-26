@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
     const zg = b.dependency("zg", .{ .target = target, .optimize = optimize });
 
     const lib_mod = b.addModule("resources", .{
-        .root_source_file = b.path("src/resources.zig"),
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
