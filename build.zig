@@ -167,6 +167,7 @@ const FindNDK = struct {
     pub fn search_ndk_folder(_: std.mem.Allocator, ndk_base: std.fs.Dir) ?std.fs.Dir {
         for (ndk_versions) |version| {
             const folder = ndk_base.openDir(version, .{}) catch {
+                std.log.debug("ndk version {s} not found", .{version});
                 continue;
             };
             std.log.debug("ndk version found: {any}", .{folder});
@@ -188,7 +189,7 @@ const FindNDK = struct {
             }
         }
         if (home == null) {
-            std.log.info("ANDROID_NDK_HOME not set.", .{});
+            std.log.warn("ANDROID_NDK_HOME not set.", .{});
             return null;
         }
         const d = std.fs.openDirAbsolute(home.?, .{}) catch {
