@@ -1,9 +1,5 @@
 //! Read each `Setting` line-by-line from a `Parser`.
 
-const std = @import("std");
-const praxis = @import("praxis");
-const Parser = praxis.Parser;
-
 pub const Self = @This();
 
 pub const Setting = struct {
@@ -89,3 +85,6 @@ test "read settings" {
         try expect(setting == null);
     }
 }
+
+const std = @import("std");
+const Parser = @import("praxis").Parser;

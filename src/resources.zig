@@ -515,9 +515,9 @@ pub const Resources = struct {
         // Normalise to nfc and normalise the characters with index rules.
         const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
         defer sentence_nfc.deinit(self.parent_allocator);
-        var unaccented = std.BoundedArray(u8, praxis.MAX_WORD_SIZE + 1){};
-        var normalised = std.BoundedArray(u8, praxis.MAX_WORD_SIZE + 1){};
-        praxis.normalise_word(sentence_nfc.slice, &unaccented, &normalised) catch |f| {
+        var unaccented = std.BoundedArray(u8, max_word_size + 1){};
+        var normalised = std.BoundedArray(u8, max_word_size + 1){};
+        normalise_word(sentence_nfc.slice, &unaccented, &normalised) catch |f| {
             if (f == error.EmptyWord) return error.QueryEmpty;
             if (f == error.WordTooLong) return error.QueryTooLong;
             if (f == error.Overflow) return error.QueryTooLong;
@@ -1064,9 +1064,10 @@ pub const Size = @import("export_image.zig").Size;
 pub const expand_over_bounds = @import("export_image.zig").expand_over_bounds;
 pub const keep_within_bounds = @import("export_image.zig").keep_within_bounds;
 
-const praxis = @import("praxis");
-const Parser = praxis.Parser;
-const SearchIndex = praxis.SearchIndex;
+const Parser = @import("praxis").Parser;
+const SearchIndex = @import("praxis").SearchIndex;
+const normalise_word = @import("praxis").normalise_word;
+const max_word_size = @import("praxis").MAX_WORD_SIZE;
 
 const encode = @import("base62.zig").encode;
 const decode = @import("base62.zig").decode;
