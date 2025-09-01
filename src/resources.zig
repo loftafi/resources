@@ -321,8 +321,10 @@ pub const Resources = struct {
             const file_nfc = try self.normalise.nfc(self.parent_allocator, file.name);
             defer file_nfc.deinit(self.parent_allocator);
             if (file.name.len != file_nfc.slice.len) {
-                warn("Repo file '{s}' is not nfc. mv \"{s}\" \"{s}\"", .{
+                warn("Repo file '{s}' is not nfc ({d}:{d}). mv \"{s}\" \"{s}\"", .{
                     file.name,
+                    file.name.len,
+                    file_nfc.slice.len,
                     file.name,
                     file_nfc.slice,
                 });
