@@ -37,6 +37,13 @@ buket.save_bundle("/path/to/bundle", results);
 
 ```
 
+## Unicode filenames
+
+On mac, some files may accidentally become NFD. You can convert all filenames
+to NFD usinc convmv:
+
+    convmv -r -f utf8 -t utf8 --nfc --notest .
+
 ## License
 
 This code is released under the terms of the MIT license. This
