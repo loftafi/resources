@@ -568,6 +568,27 @@ pub const Resources = struct {
         };
         const query = normalised.slice();
 
+        var trimmed: ?[]const u8 = null;
+        if (std.mem.endsWith(u8, query, ".")) {
+            trimmed = query[0 .. query.len - 1];
+            return self.lookup(trimmed.?, category, partial_match, results);
+        } else if (std.mem.endsWith(u8, query, "·")) {
+            trimmed = query[0 .. query.len - ("·".len)];
+            return self.lookup(trimmed.?, category, partial_match, results);
+        } else if (std.mem.endsWith(u8, query, ",")) {
+            trimmed = query[0 .. query.len - (",".len)];
+            return self.lookup(trimmed.?, category, partial_match, results);
+        } else if (std.mem.endsWith(u8, query, "!")) {
+            trimmed = query[0 .. query.len - ("!".len)];
+            return self.lookup(trimmed.?, category, partial_match, results);
+        } else if (std.mem.endsWith(u8, query, ":")) {
+            trimmed = query[0 .. query.len - (":".len)];
+            return self.lookup(trimmed.?, category, partial_match, results);
+        }
+        //} else if (std.mem.endsWith(u8, query, ";")) {
+        //trimmed = query[0 .. query.len - (";".len)];
+        //return self.lookup(trimmed, category, partial_match, results);
+
         // Lookup by exact full filename (excluding extension and prefixes)
         if (self.by_filename.lookup(query)) |r| {
             for (r.exact_accented.items) |x| {
@@ -580,44 +601,25 @@ pub const Resources = struct {
                         try results.append(x);
                 }
             }
-            if (partial_match and results.items.len == 0) {
-                for (r.partial_match.items) |x| {
-                    //debug("Partial match. Matching {s} {any} == {any} {any}", .{
-                    //    sentence_nfc.slice,
-                    //    @tagName(category),
-                    //    x.filename,
-                    //    @tagName(x.resource),
-                    //});
-                    try results.append(x);
+
+            if (trimmed) |tq| {
+                if (self.by_filename.lookup(tq)) |tr| {
+                    for (tr.exact_accented.items) |x| {
+                        if (category.matches(x.resource))
+                            try results.append(x);
+                    }
+                }
+                if (self.by_filename.lookup(tq)) |tr| {
+                    for (tr.exact_unaccented.items) |x| {
+                        if (category.matches(x.resource))
+                            try results.append(x);
+                    }
                 }
             }
-        }
 
-        if (results.items.len == 0) {
-            if (std.mem.endsWith(u8, query, ".")) {
-                const trimmed = query[0 .. query.len - 1];
-                return self.lookup(trimmed, category, partial_match, results);
-            } else if (std.mem.endsWith(u8, query, "·")) {
-                const trimmed = query[0 .. query.len - ("·".len)];
-                return self.lookup(trimmed, category, partial_match, results);
-            } else if (std.mem.endsWith(u8, query, ",")) {
-                const trimmed = query[0 .. query.len - (",".len)];
-                return self.lookup(trimmed, category, partial_match, results);
-            } else if (std.mem.endsWith(u8, query, ";")) {
-                const trimmed = query[0 .. query.len - (";".len)];
-                return self.lookup(trimmed, category, partial_match, results);
-            } else if (std.mem.endsWith(u8, query, "!")) {
-                const trimmed = query[0 .. query.len - ("!".len)];
-                return self.lookup(trimmed, category, partial_match, results);
-            } else if (std.mem.endsWith(u8, query, ":")) {
-                const trimmed = query[0 .. query.len - (":".len)];
-                return self.lookup(trimmed, category, partial_match, results);
-            } else {
-                //debug("resources.lookup failed to match \"{s}\" {any}", .{
-                //    query,
-                //    category,
-                //});
-                return;
+            if (partial_match and results.items.len == 0) {
+                for (r.partial_match.items) |x|
+                    try results.append(x);
             }
         }
     }
@@ -626,34 +628,17 @@ pub const Resources = struct {
     /// exactly matches. Undecided if this should be case-insensitive.
     pub fn lookupOne(
         self: *Resources,
-        filename: []const u8,
+        sentence: []const u8,
         category: SearchCategory,
     ) ?*Resource {
-        if (self.by_filename.lookup(filename)) |result| {
-            for (result.exact_accented.items) |*item| {
-                if (category.matches(item.*.resource)) {
-                    return item.*;
-                }
-            }
-            for (result.exact_unaccented.items) |*item| {
-                if (category.matches(item.*.resource)) {
-                    return item.*;
-                }
-            }
-            for (result.partial_match.items) |*item| {
-                if (category.matches(item.*.resource)) {
-                    debug("lookupOne(\"{s}\" {any}) returned partial match", .{
-                        filename,
-                        category,
-                    });
-                    return item.*;
-                }
-            }
-        }
-        debug("lookupOne(\"{s}\" {any}) failed to match", .{
-            filename,
-            @tagName(category),
-        });
+        if (sentence.len == 0) return;
+
+        var results = ArrayList(*Resource).init(self.parent_allocator);
+        defer results.deinit();
+        self.lookup(sentence, category, false, &results);
+        if (results.items.len > 0)
+            return results.items[0];
+
         return null;
     }
 
@@ -959,6 +944,14 @@ test "search resources" {
     results.clearRetainingCapacity();
     try resources.lookup("Δαυὶδ", .any, true, &results);
     try expectEqual(0, results.items.len);
+
+    results.clearRetainingCapacity();
+    try resources.lookup("πτωχός", .any, true, &results);
+    try expectEqual(2, results.items.len);
+
+    results.clearRetainingCapacity();
+    try resources.lookup("πτωχός.", .any, true, &results);
+    try expectEqual(2, results.items.len);
 }
 
 test "file_name_split" {

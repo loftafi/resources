@@ -51,30 +51,31 @@ pub const Resource = struct {
 
         switch (file_type) {
             .svg, .jpx, .csv, .xml, .png, .jpg, .bin => {
-                if (filename.len > 0) {
+                if (filename.len > 0)
                     resource.filename = try arena_allocator.dupeZ(u8, filename);
-                }
                 try load_metadata(normalise, resource, filename, arena_allocator, parent_allocator);
             },
             .wav => {
-                if (sentence_text == null) {
+                resource.visible = true;
+                if (sentence_text) |s| {
+                    try resource.sentences.append(try arena_allocator.dupe(u8, s));
+                    if (std.mem.endsWith(u8, s, "."))
+                        try resource.sentences.append(try arena_allocator.dupe(u8, s[0 .. s.len - 1]));
+                } else {
                     return error.MetadataMissing;
                 }
-                if (filename.len > 0) {
+                if (filename.len > 0)
                     resource.filename = try arena_allocator.dupeZ(u8, filename);
-                }
-                try resource.sentences.append(try arena_allocator.dupe(u8, sentence_text.?));
-                resource.visible = true;
             },
             .ttf, .otf => {
-                if (sentence_text == null) {
+                resource.visible = true;
+                if (sentence_text) |s| {
+                    try resource.sentences.append(try arena_allocator.dupe(u8, s));
+                } else {
                     return error.MetadataMissing;
                 }
-                if (filename.len > 0) {
+                if (filename.len > 0)
                     resource.filename = try arena_allocator.dupeZ(u8, filename);
-                }
-                try resource.sentences.append(try arena_allocator.dupe(u8, sentence_text.?));
-                resource.visible = true;
             },
             .unknown => {
                 return error.MetadataMissing;
@@ -152,14 +153,14 @@ fn load_metadata(
     normalise: *Normalize,
     resource: *Resource,
     filename: []u8,
-    arena_allocator: Allocator,
-    temp_allocator: Allocator,
+    arena: Allocator,
+    gpa: Allocator,
 ) error{ OutOfMemory, MetadataMissing, ReadMetadataFailed, InvalidResourceUID }!void {
     const l = filename.len - 3;
     filename[l + 0] = 't';
     filename[l + 1] = 'x';
     filename[l + 2] = 't';
-    const data = load_file_bytes(temp_allocator, filename) catch |e| {
+    const data = load_file_bytes(gpa, filename) catch |e| {
         std.debug.print("load_metadata failed reading {s}. Error: {any}\n", .{ filename, e });
         if (e == error.FileNotFound) {
             return error.MetadataMissing;
@@ -167,14 +168,14 @@ fn load_metadata(
             return error.ReadMetadataFailed;
         }
     };
-    defer temp_allocator.free(data);
+    defer gpa.free(data);
 
-    const data_nfc = try normalise.nfc(temp_allocator, data);
-    defer data_nfc.deinit(temp_allocator);
+    const data_nfc = try normalise.nfc(gpa, data);
+    defer data_nfc.deinit(gpa);
 
     if (data.len != data_nfc.slice.len) {
         warn("metadata file {s} is not nfc.", .{filename});
-        write_file_bytes(temp_allocator, filename, data_nfc.slice) catch {
+        write_file_bytes(gpa, filename, data_nfc.slice) catch {
             warn("update metadata file {s} to nfc failed.", .{filename});
         };
     }
@@ -193,24 +194,22 @@ fn load_metadata(
                             return error.InvalidResourceUID;
                         };
                     }
-                    if (resource.uid == 0) {
-                        return error.InvalidResourceUID;
-                    }
+                    if (resource.uid == 0) return error.InvalidResourceUID;
                 },
                 .date => {
-                    resource.date = try arena_allocator.dupe(u8, entry.value);
+                    resource.date = try arena.dupe(u8, entry.value);
                 },
                 .copyright => {
-                    resource.copyright = try arena_allocator.dupe(u8, entry.value);
+                    resource.copyright = try arena.dupe(u8, entry.value);
                 },
                 .visible => {
                     resource.visible = is_true(entry.value);
                 },
                 .sentence => {
                     if (entry.value.len > 0)
-                        try resource.sentences.append(
-                            try arena_allocator.dupe(u8, entry.value),
-                        );
+                        try resource.sentences.append(try arena.dupe(u8, entry.value));
+                    if (entry.value.len > 1 and std.mem.endsWith(u8, entry.value, "."))
+                        try resource.sentences.append(try arena.dupe(u8, entry.value[0 .. entry.value.len - 1]));
                 },
                 else => {},
             }
