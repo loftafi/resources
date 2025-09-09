@@ -312,7 +312,6 @@ pub const Resources = struct {
                 continue;
             }
             const file_info = get_file_type(file.name);
-            var resource: *Resource = undefined;
 
             if (file_info.extension == .unknown) {
                 continue;
@@ -337,6 +336,7 @@ pub const Resources = struct {
             }
             try filename.appendSlice(file.name);
 
+            var resource: ?*Resource = null;
             switch (file_info.extension) {
                 .wav => {
                     if (try get_wav_greek_name(self.parent_allocator, file.name)) |sentence| {
@@ -347,8 +347,8 @@ pub const Resources = struct {
                             std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                             return e;
                         };
-                        resource.uid = try self.unique_random_u64();
-                        resource.resource = file_info.extension;
+                        resource.?.uid = try self.unique_random_u64();
+                        resource.?.resource = file_info.extension;
                     } else {
                         continue;
                     }
@@ -363,7 +363,7 @@ pub const Resources = struct {
                             return e;
                         }
                     };
-                    resource.resource = file_info.extension;
+                    resource.?.resource = file_info.extension;
                 },
                 .bin => {
                     resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, null, &self.normalise) catch |e| {
@@ -375,7 +375,7 @@ pub const Resources = struct {
                             return e;
                         }
                     };
-                    resource.resource = file_info.extension;
+                    resource.?.resource = file_info.extension;
                 },
                 .ttf, .otf => {
                     const parts = get_file_type(file.name);
@@ -383,42 +383,66 @@ pub const Resources = struct {
                         std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                         return e;
                     };
-                    resource.uid = try self.unique_random_u64();
-                    resource.resource = file_info.extension;
+                    resource.?.uid = try self.unique_random_u64();
+                    resource.?.resource = file_info.extension;
                 },
                 .xml, .jpx, .csv, .svg => {
                     resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, file_info.name, &self.normalise) catch |e| {
                         std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
                         return e;
                     };
-                    resource.uid = decode(u64, file_info.name) catch {
+                    resource.?.uid = decode(u64, file_info.name) catch {
                         return Error.InvalidResourceUID;
                     };
-                    resource.resource = file_info.extension;
+                    resource.?.resource = file_info.extension;
                 },
                 else => {
                     log.err("unknown resource type: {any}\n", .{file_info.extension});
                     continue;
                 },
             }
-
-            // Lookup by UID
-            if (self.by_uid.contains(resource.uid)) {
-                log.err("error: duplicated uid {any} file {s}\n", .{ resource.uid, filename.items });
-                resource.destroy(self.arena_allocator);
+            if (resource == null) continue;
+            if (resource.?.visible == false) {
+                resource.?.destroy(self.parent_allocator);
                 continue;
             }
-            try self.by_uid.put(resource.uid, resource);
+
+            // Lookup by UID
+            if (self.by_uid.contains(resource.?.uid)) {
+                log.err("error: duplicated uid {any} file {s}\n", .{
+                    resource.?.uid,
+                    filename.items,
+                });
+                resource.?.destroy(self.arena_allocator);
+                continue;
+            }
+            try self.by_uid.put(resource.?.uid, resource.?);
 
             // Lookup by filename or sentence
-            self.by_filename.add(self.arena_allocator, file_info.name, resource) catch |e| {
-                log.err("error: invalid metadata in file {any} {s} {any}\n", .{ resource.uid, filename.items, e });
+            self.by_filename.add(
+                self.arena_allocator,
+                file_info.name,
+                resource.?,
+            ) catch |e| {
+                log.err("error: invalid metadata in file {any} {s} {any}\n", .{
+                    resource.?.uid,
+                    filename.items,
+                    e,
+                });
                 return error.ReadMetadataFailed;
             };
-            for (resource.sentences.items) |sentence| {
+            for (resource.?.sentences.items) |sentence| {
                 if (!std.mem.eql(u8, file_info.name, sentence)) {
-                    self.by_filename.add(self.arena_allocator, sentence, resource) catch |e| {
-                        log.err("error: invalid metadata in file {any} {s} {any}\n", .{ resource.uid, filename.items, e });
+                    self.by_filename.add(
+                        self.arena_allocator,
+                        sentence,
+                        resource.?,
+                    ) catch |e| {
+                        log.err("error: invalid metadata in file {any} {s} {any}\n", .{
+                            resource.?.uid,
+                            filename.items,
+                            e,
+                        });
                         return error.ReadMetadataFailed;
                     };
                 }
@@ -426,17 +450,29 @@ pub const Resources = struct {
 
             var unique = UniqueWords.init(self.arena_allocator);
             defer unique.deinit();
-            try unique.addArray(&resource.sentences.items);
+            try unique.addArray(&resource.?.sentences.items);
             var it = unique.words.iterator();
             while (it.next()) |word| {
                 if (word.key_ptr.*.len > 0) {
-                    self.by_word.add(self.arena_allocator, word.key_ptr.*, resource) catch |e| {
-                        log.err("error: invalid metadata in file {any} {s} {any}\n", .{ resource.uid, filename.items, e });
+                    self.by_word.add(
+                        self.arena_allocator,
+                        word.key_ptr.*,
+                        resource.?,
+                    ) catch |e| {
+                        log.err("error: invalid metadata in file {any} {s} {any}\n", .{
+                            resource.?.uid,
+                            filename.items,
+                            e,
+                        });
                         return error.ReadMetadataFailed;
                     };
                 } else {
                     var buffer: [40:0]u8 = undefined;
-                    std.debug.print("empty sentence keyword in {s}\n", .{encode(u64, resource.uid, &buffer)});
+                    std.debug.print("empty sentence keyword in {s}\n", .{encode(
+                        u64,
+                        resource.?.uid,
+                        &buffer,
+                    )});
                 }
             }
         }

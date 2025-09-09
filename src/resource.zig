@@ -207,9 +207,10 @@ fn load_metadata(
                     resource.visible = is_true(entry.value);
                 },
                 .sentence => {
-                    if (entry.value.len > 0) {
-                        try resource.sentences.append(try arena_allocator.dupe(u8, entry.value));
-                    }
+                    if (entry.value.len > 0)
+                        try resource.sentences.append(
+                            try arena_allocator.dupe(u8, entry.value),
+                        );
                 },
                 else => {},
             }
