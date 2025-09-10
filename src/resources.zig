@@ -952,6 +952,14 @@ test "search resources" {
     results.clearRetainingCapacity();
     try resources.lookup("πτωχός.", .any, true, &results);
     try expectEqual(2, results.items.len);
+
+    results.clearRetainingCapacity();
+    try resources.lookup("γυναῖκας· βλέψατε!", .any, true, &results);
+    try expectEqual(1, results.items.len);
+
+    results.clearRetainingCapacity();
+    try resources.lookup("γυναῖκας· βλέψατε", .any, true, &results);
+    try expectEqual(1, results.items.len);
 }
 
 test "file_name_split" {
