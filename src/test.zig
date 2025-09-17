@@ -6,4 +6,7 @@ test {
 
     const resource = @import("resource.zig");
     std.testing.refAllDecls(resource);
+
+    const exportImage = @import("export_image.zig");
+    std.testing.refAllDecls(exportImage);
 }

@@ -24,12 +24,13 @@ pub fn exportImage(
     to_name: []const u8,
     bounded: Size,
     mode: ScaleMode,
-) ![]const u8 {
+) !void {
     zstbi.init(allocator);
     defer zstbi.deinit();
 
     // Read the raw image data
     const data = try resources.read_data(resource, allocator);
+    defer allocator.free(data);
     var img = try zstbi.Image.loadFromMemory(data, 0);
     defer img.deinit();
 
@@ -38,15 +39,14 @@ pub fn exportImage(
         return error.ExportsJpgOrPngOnly;
     }
 
-    const original = img.info();
-    if (original.width < 300 or original.height < 300) {
+    if (img.width < 300 or img.height < 300) {
         warn("WARNING: Exporting very small image. {d}x{d}", .{
-            original.width,
-            original.height,
+            img.width,
+            img.height,
         });
     }
 
-    info("Exporting image {s} as {s}", .{ resource.filename, to_name });
+    info("Exporting image {s} as {s}", .{ resource.filename.?, to_name });
 
     //println!("Reading image: {:?} colour type is: {:?}", src, img.color());
 
@@ -74,47 +74,52 @@ pub fn exportImage(
     //}
 
     // Expand or shrink image image if needed
+    var size = Size{ .width = @floatFromInt(img.width), .height = @floatFromInt(img.height) };
     const target = switch (mode) {
-        .fit => fit(original, bounded),
-        .fill => fill(original, bounded),
-        .cover => fill(original, bounded),
+        .fit => fit(size, bounded),
+        .fill => fill(size, bounded),
+        .cover => fill(size, bounded),
     };
     if (target) |new_size| {
         const new_img = img.resize(
-            new_size.width,
-            new_size.height,
-            //image.imageops.FilterType.Lanczos3,
+            @intFromFloat(new_size.width),
+            @intFromFloat(new_size.height),
         );
         img.deinit();
         img = new_img;
-        original = img.info();
+        size = Size{ .width = @floatFromInt(img.width), .height = @floatFromInt(img.height) };
     }
 
-    const to_filename = to_dir.realpathAlloc(allocator, to_name);
-    defer allocator.free(to_filename);
+    const to_dir_name = try to_dir.realpathAlloc(allocator, ".");
+    defer allocator.free(to_dir_name);
+    const joined = try std.fs.path.join(allocator, &[_][]const u8{ to_dir_name, to_name });
+    defer allocator.free(joined);
+    const to_filename_z = try std.fmt.allocPrintZ(allocator, "{s}", .{joined});
+    defer allocator.free(to_filename_z);
 
     if (mode == .cover) {
         // Additionally, if cover mode requested, also crop the image if needed.
-        var x: u32 = 0;
-        var y: u32 = 0;
-        if (original.width > bounded.width) {
-            x += @intCast(@as(f64, @floatCast((original.width - bounded.width))) / 2.0);
+        var x: f64 = 0;
+        var y: f64 = 0;
+        if (size.width > bounded.width) {
+            x += @as(f64, @floatCast((size.width - bounded.width))) / 2.0;
         }
-        if (original.height > bounded.height) {
-            y += @intCast(@as(f64, @floatCast((original.height - bounded.height))) / 2.0);
+        if (size.height > bounded.height) {
+            y += @as(f64, @floatCast((size.height - bounded.height))) / 2.0;
         }
         const format: zstbi.ImageWriteFormat = .png;
         const temp_filename = "/tmp/temp.out.png";
         try zstbi.Image.writeToFile(img, temp_filename, format);
         var image = try zigimg.Image.fromFilePath(allocator, temp_filename);
         defer image.deinit();
-        image.crop(allocator, zigimg.Box{
-            .x = x,
-            .y = y,
-            .width = bounded.width,
-            .height = bounded.height,
+        var cropped = try image.crop(allocator, .{
+            .x = @intFromFloat(x),
+            .y = @intFromFloat(y),
+            .width = @intFromFloat(bounded.width),
+            .height = @intFromFloat(bounded.height),
         });
-        try image.writeToFilePath(to_filename, .{ .png = .{} });
+        defer cropped.deinit();
+        try cropped.writeToFilePath(to_filename_z, .{ .png = .{} });
     } else {
         // No crop needed, just save the file
 
@@ -122,10 +127,10 @@ pub fn exportImage(
         //encoder.encode(&imbuf.into_raw(), target_width, target_height, ColorType::Rgba8);
         if (std.ascii.eqlIgnoreCase(ext, ".jpg")) {
             const format: zstbi.ImageWriteFormat = .{ .jpg = .{ .quality = 75 } };
-            zstbi.Image.writeToFile(img, to_filename, format);
+            try zstbi.Image.writeToFile(img, to_filename_z, format);
         } else if (std.ascii.eqlIgnoreCase(ext, ".png")) {
             const format: zstbi.ImageWriteFormat = .png;
-            zstbi.Image.writeToFile(img, to_filename, format);
+            try zstbi.Image.writeToFile(img, to_filename_z, format);
         } else {
             unreachable; // only jpg and jpng should reach this code block.
         }
@@ -316,10 +321,7 @@ test "test_fit" {
     try expectEqual(size.width, 83);
     try expectEqual(size.height, 100);
 
-    const size2 = fit(
-        .{ .width = 120, .height = 100 },
-        .{ .width = 100, .height = 100 },
-    ).?;
+    const size2 = fit(.{ .width = 120, .height = 100 }, .{ .width = 100, .height = 100 }).?;
     try expectEqual(size2.width, 100);
     try expectEqual(size2.height, 83);
 
@@ -368,12 +370,47 @@ test "test_fit" {
     try expectEqual(size8.height, 80);
 }
 
+test "export_image" {
+    const gpa = std.testing.allocator;
+
+    var resources = try Resources.create(std.testing.allocator);
+    defer resources.destroy();
+    _ = try resources.load_directory("./test/repo/");
+
+    const resource = try resources.lookupOne("δύο κρέα", .image);
+    try expect(resource != null);
+
+    const to_dir = std.fs.cwd();
+
+    try exportImage(
+        gpa,
+        resources,
+        resource.?,
+        to_dir,
+        "test.jpg",
+        .{ .width = 100, .height = 200 },
+        .cover,
+    );
+
+    try exportImage(
+        gpa,
+        resources,
+        resource.?,
+        to_dir,
+        "test2.jpg",
+        .{ .width = 300, .height = 120 },
+        .cover,
+    );
+}
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const err = std.log.err;
 const warn = std.log.warn;
 const info = std.log.info;
+const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+
 const Resource = @import("resources.zig").Resource;
 const Resources = @import("resources.zig").Resources;
 const zstbi = @import("zstbi");

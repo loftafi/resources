@@ -630,12 +630,12 @@ pub const Resources = struct {
         self: *Resources,
         sentence: []const u8,
         category: SearchCategory,
-    ) ?*Resource {
-        if (sentence.len == 0) return;
+    ) (error{OutOfMemory} || Error)!?*Resource {
+        if (sentence.len == 0) return null;
 
         var results = ArrayList(*Resource).init(self.parent_allocator);
         defer results.deinit();
-        self.lookup(sentence, category, false, &results);
+        try self.lookup(sentence, category, false, &results);
         if (results.items.len > 0)
             return results.items[0];
 
@@ -1097,6 +1097,7 @@ pub const seed = @import("random.zig").seed;
 pub const random = @import("random.zig").random;
 pub const random_u64 = @import("random.zig").random_u64;
 pub const Resource = @import("resource.zig").Resource;
+pub const exportImage = @import("export_image.zig").exportImage;
 
 const Parser = @import("praxis").Parser;
 const SearchIndex = @import("praxis").SearchIndex;

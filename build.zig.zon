@@ -10,8 +10,8 @@
             .hash = "praxis-0.2.1-FPf2NRReBgBkQhmOgxPD4TMv3M2cV-JYRY1uzki-H3Se",
         },
         .zstbi = .{
-            .url = "git+https://github.com/zig-gamedev/zstbi#2c4b3100ccb7aed90ecc9439030899764e2a8d47",
-            .hash = "zstbi-0.11.0-dev-L0Ea_yaWBwAHwFoCuyjkFyaiSsbjt4UOrkntR0c_nmzz",
+            .url = "git+https://github.com/zig-gamedev/zstbi#a70604a93988ee553d0ae6a3871726270a6025d5",
+            .hash = "zstbi-0.11.0-dev-L0Ea_9WVBwAO8t0Qbr87vnCEf1QBcNQHbV-O_D0UWYqT",
         },
         .zg = .{
             .url = "https://codeberg.org/atman/zg/archive/v0.14.1.tar.gz",
