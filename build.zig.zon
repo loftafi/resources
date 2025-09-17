@@ -17,6 +17,10 @@
             .url = "https://codeberg.org/atman/zg/archive/v0.14.1.tar.gz",
             .hash = "zg-0.14.1-oGqU3IQ_tALZIiBN026_NTaPJqU-Upm8P_C7QED2Rzm8",
         },
+        .zigimg = .{
+            .url = "git+https://github.com/zigimg/zigimg.git#70a3abe922d65ec13b488b0890970edcf11e0006",
+            .hash = "zigimg-0.1.0-8_eo2oFJEwDQjDFXp7mdV7KXQiMIRAYCl7Y0z91NdxG2",
+        },
     },
 
     .paths = .{

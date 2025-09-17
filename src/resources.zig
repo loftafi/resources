@@ -1098,11 +1098,6 @@ pub const random = @import("random.zig").random;
 pub const random_u64 = @import("random.zig").random_u64;
 pub const Resource = @import("resource.zig").Resource;
 
-pub const ScaleMode = @import("export_image.zig").ScaleMode;
-pub const Size = @import("export_image.zig").Size;
-pub const expand_over_bounds = @import("export_image.zig").expand_over_bounds;
-pub const keep_within_bounds = @import("export_image.zig").keep_within_bounds;
-
 const Parser = @import("praxis").Parser;
 const SearchIndex = @import("praxis").SearchIndex;
 const normalise_word = @import("praxis").normalise_word;

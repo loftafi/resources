@@ -38,7 +38,7 @@ pub const Resource = struct {
         filename: []u8,
         file_type: Resource.Type,
         sentence_text: ?[]const u8,
-        normalise: *Normalize,
+        normalise: *const Normalize,
     ) error{
         OutOfMemory,
         ReadRepoFileFailed,
@@ -150,7 +150,7 @@ pub const Resource = struct {
 };
 
 fn load_metadata(
-    normalise: *Normalize,
+    normalise: *const Normalize,
     resource: *Resource,
     filename: []u8,
     arena: Allocator,

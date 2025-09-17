@@ -1,6 +1,11 @@
 pub const ScaleMode = enum {
-    keep_within_bounds,
-    expand_over_bounds,
+    /// fit. Decrease the image size if it is too wide or high.
+    fit,
+
+    /// fill. Increase the image size if there is width and height we can grow into.
+    fill,
+
+    /// Expand to fill the entire bounding box and crop edges.
     cover,
 };
 
@@ -68,17 +73,16 @@ pub fn exportImage(
     //    }
     //}
 
+    // Expand or shrink image image if needed
     const target = switch (mode) {
-        .keep_within_bounds => keep_within_bounds(original, bounded),
-        .expand_over_bounds => expand_over_bounds(original, bounded),
-        .cover => expand_over_bounds(original, bounded),
+        .fit => fit(original, bounded),
+        .fill => fill(original, bounded),
+        .cover => fill(original, bounded),
     };
-
-    // Expand image if needed
-    if (original.width != target.width or original.height != target.height) {
+    if (target) |new_size| {
         const new_img = img.resize(
-            target.width,
-            target.height,
+            new_size.width,
+            new_size.height,
             //image.imageops.FilterType.Lanczos3,
         );
         img.deinit();
@@ -86,8 +90,11 @@ pub fn exportImage(
         original = img.info();
     }
 
+    const to_filename = to_dir.realpathAlloc(allocator, to_name);
+    defer allocator.free(to_filename);
+
     if (mode == .cover) {
-        // In cover mode, we must also crop.clip after resizing.
+        // Additionally, if cover mode requested, also crop the image if needed.
         var x: u32 = 0;
         var y: u32 = 0;
         if (original.width > bounded.width) {
@@ -96,24 +103,32 @@ pub fn exportImage(
         if (original.height > bounded.height) {
             y += @intCast(@as(f64, @floatCast((original.height - bounded.height))) / 2.0);
         }
-        @panic("crop not yet supported");
-        //img = img.crop(img, x, y, bounded.width, bounded.height);
-        //original = img.info();
-    }
-
-    const filename = to_dir.realpathAlloc(allocator, to_name);
-    defer allocator.free(filename);
-
-    //let encoder = PngEncoder::new_with_quality(&mut out, CompressionType::Best, FilterType::NoFilter);
-    //encoder.encode(&imbuf.into_raw(), target_width, target_height, ColorType::Rgba8);
-    if (std.ascii.eqlIgnoreCase(ext, ".jpg")) {
-        const format: zstbi.ImageWriteFormat = .{ .jpg = .{ .quality = 75 } };
-        zstbi.Image.writeToFile(img, filename, format);
-    } else if (std.ascii.eqlIgnoreCase(ext, ".png")) {
         const format: zstbi.ImageWriteFormat = .png;
-        zstbi.Image.writeToFile(img, filename, format);
+        const temp_filename = "/tmp/temp.out.png";
+        try zstbi.Image.writeToFile(img, temp_filename, format);
+        var image = try zigimg.Image.fromFilePath(allocator, temp_filename);
+        defer image.deinit();
+        image.crop(allocator, zigimg.Box{
+            .x = x,
+            .y = y,
+            .width = bounded.width,
+            .height = bounded.height,
+        });
+        try image.writeToFilePath(to_filename, .{ .png = .{} });
     } else {
-        unreachable; // only jpg and jpng should reach this code block.
+        // No crop needed, just save the file
+
+        //let encoder = PngEncoder::new_with_quality(&mut out, CompressionType::Best, FilterType::NoFilter);
+        //encoder.encode(&imbuf.into_raw(), target_width, target_height, ColorType::Rgba8);
+        if (std.ascii.eqlIgnoreCase(ext, ".jpg")) {
+            const format: zstbi.ImageWriteFormat = .{ .jpg = .{ .quality = 75 } };
+            zstbi.Image.writeToFile(img, to_filename, format);
+        } else if (std.ascii.eqlIgnoreCase(ext, ".png")) {
+            const format: zstbi.ImageWriteFormat = .png;
+            zstbi.Image.writeToFile(img, to_filename, format);
+        } else {
+            unreachable; // only jpg and jpng should reach this code block.
+        }
     }
 
     return;
@@ -126,49 +141,51 @@ inline fn size_difference(x: f64, y: f64) f64 {
     };
 }
 
-pub fn expand_over_bounds(size: Size, preferred: Size) Size {
-    var scale: f64 = undefined;
+/// Return a larger width and height if the image needs to be increased in size.
+pub fn fill(size: Size, preferred: Size) ?Size {
+    var scale: f64 = preferred.width / size.width;
 
-    const x_diff = size_difference(size.width, preferred.width);
-    const y_diff = size_difference(size.height, preferred.height);
+    const scale2: f64 = preferred.height / size.height;
+    if (scale2 > scale) scale = scale2;
 
-    if (x_diff > y_diff) {
-        scale = preferred.height / size.height;
-    } else {
-        scale = preferred.width / size.width;
-    }
-
-    return .{
+    const result = Size{
         .width = size.width * scale,
         .height = size.height * scale,
     };
+
+    if (result.width == size.width and result.height == size.height)
+        return null;
+
+    return result;
 }
 
-pub fn keep_within_bounds(original: Size, preferred: Size) Size {
-    var size = original;
+/// If the image is too high or too wide for the bounding box, then reduce the
+/// image to fit the bounding box. Does not increase image size. May leave
+/// blank space on the sides of the image.
+pub fn fit(size: Size, preferred: Size) ?Size {
+    if (size.width <= preferred.width and size.height <= preferred.height)
+        return null;
 
-    if (size.width <= preferred.width and size.height <= preferred.height) {
-        return size;
-    }
+    // Reduce width if needed
+    var scale: f64 = 1.0;
 
-    var new_size: Size = undefined;
-    var scale: f64 = 0;
-
-    if (size.width > preferred.width) {
+    if (size.width > preferred.width)
         scale = preferred.width / size.width;
-        new_size.width = preferred.width;
-        new_size.height = @round(size.height * scale);
-        size.width = new_size.width;
-        size.height = new_size.height;
-    }
 
     if (size.height > preferred.height) {
-        scale = preferred.height / size.height;
-        new_size.height = preferred.height;
-        new_size.width = @round(size.width * scale);
+        const scale2: f64 = preferred.height / size.height;
+        if (scale2 < scale) scale = scale2;
     }
 
-    return new_size;
+    const result = Size{
+        .width = @round(size.width * scale),
+        .height = @round(size.height * scale),
+    };
+
+    if (result.width == size.width and result.height == size.height)
+        return null;
+
+    return result;
 }
 
 fn get_orientation(_: []const u8) !u32 {
@@ -195,92 +212,160 @@ test "size_difference" {
     try expectEqual(10, size_difference(15, 5));
 }
 
-test "test_expand_over_bounds" {
-    var size = expand_over_bounds(
+test "test_fill" {
+    const size = fill(
         .{ .width = 100, .height = 120 }, // actual size
         .{ .width = 100, .height = 100 }, // preferred size
     );
-    try expectEqual(size.width, 100);
-    try expectEqual(size.height, 120);
+    //try expectEqual(size.width, 100);
+    //try expectEqual(size.height, 120);
+    try expectEqual(null, size);
 
-    size = expand_over_bounds(
+    const size2 = fill(
         .{ .width = 120, .height = 100 },
         .{ .width = 100, .height = 100 },
     );
-    try expectEqual(size.width, 120);
-    try expectEqual(size.height, 100);
+    //try expectEqual(size.width, 120);
+    //try expectEqual(size.height, 100);
+    try expectEqual(null, size2);
 
-    size = expand_over_bounds(
+    const size3 = fill(
         .{ .width = 100, .height = 100 },
         .{ .width = 80, .height = 100 },
     );
-    try expectEqual(size.width, 100);
-    try expectEqual(size.height, 100);
+    //try expectEqual(size.width, 100);
+    //try expectEqual(size.height, 100);
+    try expectEqual(null, size3);
 
-    size = expand_over_bounds(
+    const size4 = fill(
         .{ .width = 100, .height = 100 },
         .{ .width = 100, .height = 80 },
     );
-    try expectEqual(size.width, 100);
-    try expectEqual(size.height, 100);
+    //try expectEqual(size.width, 100);
+    //try expectEqual(size.height, 100);
+    try expectEqual(null, size4);
 
-    size = expand_over_bounds(
+    const size5 = fill(
         .{ .width = 100, .height = 100 },
         .{ .width = 100, .height = 100 },
     );
-    try expectEqual(size.width, 100);
-    try expectEqual(size.height, 100);
+    //try expectEqual(size.width, 100);
+    //try expectEqual(size.height, 100);
+    try expectEqual(null, size5);
+
+    const size6 = fill(
+        .{ .width = 80, .height = 80 },
+        .{ .width = 100, .height = 100 },
+    ).?;
+    try expectEqual(size6.width, 100);
+    try expectEqual(size6.height, 100);
+
+    const size7 = fill(
+        .{ .width = 80, .height = 100 },
+        .{ .width = 100, .height = 100 },
+    ).?;
+    try expectEqual(size7.width, 100);
+    try expectEqual(size7.height, 125);
+
+    const size8 = fill(
+        .{ .width = 100, .height = 80 },
+        .{ .width = 100, .height = 100 },
+    ).?;
+    try expectEqual(size8.width, 125);
+    try expectEqual(size8.height, 100);
+
+    const size9 = fill(
+        .{ .width = 90, .height = 80 },
+        .{ .width = 100, .height = 100 },
+    ).?;
+    try expectEqual(112.5, size9.width);
+    try expectEqual(100, size9.height);
+
+    const size10 = fill(
+        .{ .width = 200, .height = 200 },
+        .{ .width = 100, .height = 100 },
+    ).?;
+    try expectEqual(100, size10.width);
+    try expectEqual(100, size10.height);
+
+    const size11 = fill(
+        .{ .width = 200, .height = 100 },
+        .{ .width = 100, .height = 100 },
+    );
+    try expectEqual(null, size11);
+
+    const size12 = fill(
+        .{ .width = 100, .height = 200 },
+        .{ .width = 100, .height = 100 },
+    );
+    try expectEqual(null, size12);
+
+    const size13 = fill(
+        .{ .width = 150, .height = 200 },
+        .{ .width = 100, .height = 100 },
+    ).?;
+    try expectEqual(100, size13.width);
+    try expectEqual(133, @as(usize, @intFromFloat(size13.height)));
 }
 
-test "test_keep_within_bounds" {
-    var size = keep_within_bounds(
+test "test_fit" {
+    const size = fit(
         .{ .width = 100, .height = 120 }, // actual size
         .{ .width = 100, .height = 100 }, // preferred size
-    );
+    ).?;
     try expectEqual(size.width, 83);
     try expectEqual(size.height, 100);
 
-    size = keep_within_bounds(
+    const size2 = fit(
         .{ .width = 120, .height = 100 },
         .{ .width = 100, .height = 100 },
-    );
-    try expectEqual(size.width, 100);
-    try expectEqual(size.height, 83);
+    ).?;
+    try expectEqual(size2.width, 100);
+    try expectEqual(size2.height, 83);
 
-    size = keep_within_bounds(
+    const size3 = fit(
         .{ .width = 100, .height = 100 },
         .{ .width = 100, .height = 100 },
     );
-    try expectEqual(size.width, 100);
-    try expectEqual(size.height, 100);
+    //try expectEqual(size.width, 100);
+    //try expectEqual(size.height, 100);
+    try expectEqual(null, size3);
 
-    size = keep_within_bounds(
+    const size4 = fit(
         .{ .width = 60, .height = 60 },
         .{ .width = 100, .height = 100 },
     );
-    try expectEqual(size.width, 60);
-    try expectEqual(size.height, 60);
+    //try expectEqual(size.width, 60);
+    //try expectEqual(size.height, 60);
+    try expectEqual(null, size4);
 
-    size = keep_within_bounds(
+    const size5 = fit(
         .{ .width = 160, .height = 160 },
         .{ .width = 100, .height = 100 },
-    );
-    try expectEqual(size.width, 100);
-    try expectEqual(size.height, 100);
+    ).?;
+    try expectEqual(size5.width, 100);
+    try expectEqual(size5.height, 100);
 
-    size = keep_within_bounds(
+    const size6 = fit(
         .{ .width = 100, .height = 100 },
         .{ .width = 80, .height = 100 },
-    );
-    try expectEqual(size.width, 80);
-    try expectEqual(size.height, 80);
+    ).?;
+    try expectEqual(size6.width, 80);
+    try expectEqual(size6.height, 80);
 
-    size = keep_within_bounds(
+    const size7 = fit(
         .{ .width = 100, .height = 100 },
         .{ .width = 100, .height = 80 },
-    );
-    try expectEqual(size.width, 80);
-    try expectEqual(size.height, 80);
+    ).?;
+    try expectEqual(size7.width, 80);
+    try expectEqual(size7.height, 80);
+
+    const size8 = fit(
+        .{ .width = 100, .height = 100 },
+        .{ .width = 80, .height = 100 },
+    ).?;
+    try expectEqual(size8.width, 80);
+    try expectEqual(size8.height, 80);
 }
 
 const std = @import("std");
@@ -292,3 +377,4 @@ const expectEqual = std.testing.expectEqual;
 const Resource = @import("resources.zig").Resource;
 const Resources = @import("resources.zig").Resources;
 const zstbi = @import("zstbi");
+const zigimg = @import("zigimg");
