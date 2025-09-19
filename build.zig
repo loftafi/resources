@@ -9,6 +9,9 @@ pub fn build(b: *std.Build) void {
     const praxis = b.dependency("praxis", .{ .target = target, .optimize = optimize });
     const praxis_module = praxis.module("praxis");
 
+    const plutosvg = b.dependency("plutosvg", .{ .target = target, .optimize = optimize });
+    const plutosvg_module = plutosvg.module("plutosvg");
+
     const zigimg = b.dependency("zigimg", .{ .target = target, .optimize = optimize });
     const zigimg_module = zigimg.module("zigimg");
 
@@ -24,6 +27,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lib_mod.addImport("praxis", praxis_module);
+    lib_mod.addImport("plutosvg", plutosvg_module);
     lib_mod.addImport("zigimg", zigimg_module);
     lib_mod.addImport("zstbi", zstbi_module);
     lib_mod.addImport("Normalize", zg.module("Normalize"));
@@ -45,6 +49,7 @@ pub fn build(b: *std.Build) void {
         .filters = test_filters,
     });
     tests.root_module.addImport("praxis", praxis_module);
+    tests.root_module.addImport("plutosvg", zigimg_module);
     tests.root_module.addImport("zigimg", zigimg_module);
     tests.root_module.addImport("zstbi", zstbi_module);
     tests.root_module.addImport("Normalize", zg.module("Normalize"));

@@ -584,6 +584,9 @@ pub const Resources = struct {
         } else if (std.mem.endsWith(u8, query, ":")) {
             trimmed = query[0 .. query.len - (":".len)];
             return self.lookup(trimmed.?, category, partial_match, results);
+        } else if (std.mem.endsWith(u8, query, ";")) {
+            trimmed = query[0 .. query.len - (";".len)];
+            return self.lookup(trimmed.?, category, partial_match, results);
         }
         //} else if (std.mem.endsWith(u8, query, ";")) {
         //trimmed = query[0 .. query.len - (";".len)];

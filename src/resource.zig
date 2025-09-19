@@ -1,3 +1,7 @@
+/// Old resources might have a uid longer than 10 which does not
+/// fit into a u64. These are cleaned up as they are encountered.
+pub const max_uid_length = 10;
+
 /// Describes a resource. This inforation may be loaded from a
 /// directory of files or a bundle of files (archive).
 pub const Resource = struct {
@@ -185,8 +189,8 @@ fn load_metadata(
         if (settings.next(&stream) catch return error.ReadMetadataFailed) |entry| {
             switch (entry.setting) {
                 .uid => {
-                    if (entry.value.len > 10) {
-                        resource.uid = decode_uid(u64, entry.value[0..10]) catch {
+                    if (entry.value.len > max_uid_length) {
+                        resource.uid = decode_uid(u64, entry.value[0..max_uid_length]) catch {
                             return error.InvalidResourceUID;
                         };
                     } else {
