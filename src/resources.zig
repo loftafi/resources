@@ -566,63 +566,63 @@ pub const Resources = struct {
             if (f == error.Utf8CodepointTooLarge) return error.QueryEncodingError;
             unreachable; // unexpected error returned
         };
-        const query = normalised.slice();
 
-        var trimmed: ?[]const u8 = null;
-        if (std.mem.endsWith(u8, query, ".")) {
-            trimmed = query[0 .. query.len - 1];
-            return self.lookup(trimmed.?, category, partial_match, results);
-        } else if (std.mem.endsWith(u8, query, "·")) {
-            trimmed = query[0 .. query.len - ("·".len)];
-            return self.lookup(trimmed.?, category, partial_match, results);
-        } else if (std.mem.endsWith(u8, query, ",")) {
-            trimmed = query[0 .. query.len - (",".len)];
-            return self.lookup(trimmed.?, category, partial_match, results);
-        } else if (std.mem.endsWith(u8, query, "!")) {
-            trimmed = query[0 .. query.len - ("!".len)];
-            return self.lookup(trimmed.?, category, partial_match, results);
-        } else if (std.mem.endsWith(u8, query, ":")) {
-            trimmed = query[0 .. query.len - (":".len)];
-            return self.lookup(trimmed.?, category, partial_match, results);
-        } else if (std.mem.endsWith(u8, query, ";")) {
-            trimmed = query[0 .. query.len - (";".len)];
-            return self.lookup(trimmed.?, category, partial_match, results);
-        }
-        //} else if (std.mem.endsWith(u8, query, ";")) {
-        //trimmed = query[0 .. query.len - (";".len)];
-        //return self.lookup(trimmed, category, partial_match, results);
+        const query = normalised.slice();
+        const trimmed = sentence_trim(query);
 
         // Lookup by exact full filename (excluding extension and prefixes)
-        if (self.by_filename.lookup(query)) |r| {
+        const search_results = self.by_filename.lookup(query);
+        var trimmed_results: @TypeOf(search_results) = null;
+        if (trimmed) |t|
+            trimmed_results = self.by_filename.lookup(t);
+
+        if (search_results) |r| {
             for (r.exact_accented.items) |x| {
                 if (category.matches(x.resource))
-                    try results.append(x);
+                    try append_if_not_found(results, x);
             }
-            if (results.items.len == 0) {
+        }
+
+        if (trimmed_results) |tr| {
+            for (tr.exact_accented.items) |x| {
+                if (category.matches(x.resource))
+                    try append_if_not_found(results, x);
+            }
+        }
+
+        if (results.items.len == 0) {
+            if (search_results) |r| {
                 for (r.exact_unaccented.items) |x| {
                     if (category.matches(x.resource))
-                        try results.append(x);
+                        try append_if_not_found(results, x);
                 }
             }
 
-            if (trimmed) |tq| {
-                if (self.by_filename.lookup(tq)) |tr| {
-                    for (tr.exact_accented.items) |x| {
-                        if (category.matches(x.resource))
-                            try results.append(x);
-                    }
-                }
-                if (self.by_filename.lookup(tq)) |tr| {
-                    for (tr.exact_unaccented.items) |x| {
-                        if (category.matches(x.resource))
-                            try results.append(x);
-                    }
+            if (trimmed_results) |tr| {
+                for (tr.exact_unaccented.items) |x| {
+                    if (category.matches(x.resource))
+                        try append_if_not_found(results, x);
                 }
             }
+        }
 
-            if (partial_match and results.items.len == 0) {
-                for (r.partial_match.items) |x|
-                    try results.append(x);
+        if (partial_match) {
+            if (search_results) |r| {
+                for (r.partial_match.items) |x| {
+                    if (category.matches(x.resource))
+                        try append_if_not_found(results, x);
+                }
+                if (results.items.len > 0)
+                    return;
+            }
+
+            if (trimmed_results) |tr| {
+                for (tr.partial_match.items) |x| {
+                    if (category.matches(x.resource))
+                        try append_if_not_found(results, x);
+                }
+                if (results.items.len > 0)
+                    return;
             }
         }
     }
@@ -721,6 +721,16 @@ pub fn lessThan(_: void, self: *Resource, other: *Resource) bool {
     return self.uid < other.uid;
 }
 
+inline fn append_if_not_found(
+    results: *ArrayList(*Resource),
+    resource: *Resource,
+) error{OutOfMemory}!void {
+    for (results.items) |item| {
+        if (item.uid == resource.uid) return;
+    }
+    try results.append(resource);
+}
+
 /// Describes a table of contents entry in a bundle file.
 pub const BundleResource = struct {
     uid: u64,
@@ -761,6 +771,43 @@ fn get_wav_greek_name(allocator: Allocator, file: []const u8) error{OutOfMemory}
     }
 
     return try allocator.dupe(u8, name);
+}
+
+/// If there is extra punctuation at the end of a search term, return
+/// a version of the string with trailing punctuation removed. This ensures
+/// resource lookups don't fail because of punctuation mismatches.
+pub fn sentence_trim(sentence: []const u8) ?[]const u8 {
+    var trimmed: []const u8 = sentence;
+    while (true) {
+        if (std.mem.endsWith(u8, trimmed, ".")) {
+            trimmed.len -= ".".len;
+            continue;
+        }
+        if (std.mem.endsWith(u8, trimmed, "·")) {
+            trimmed.len -= "·".len;
+            continue;
+        }
+        if (std.mem.endsWith(u8, trimmed, ",")) {
+            trimmed.len -= ",".len;
+            continue;
+        }
+        if (std.mem.endsWith(u8, trimmed, "!")) {
+            trimmed.len -= "!".len;
+            continue;
+        }
+        if (std.mem.endsWith(u8, trimmed, ":")) {
+            trimmed.len -= ":".len;
+            continue;
+        }
+        if (std.mem.endsWith(u8, trimmed, ";")) {
+            trimmed.len -= ";".len;
+            continue;
+        }
+        break;
+    }
+    if (trimmed.len == sentence.len)
+        return null;
+    return trimmed;
 }
 
 pub fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) !void {
@@ -1056,10 +1103,9 @@ test "bundle" {
         try resources.lookup("2233", .any, true, &results);
         try expectEqual(2, results.items.len);
         try resources.lookup("abcd", .any, true, &results);
-        try expectEqual(3, results.items.len);
+        try expectEqual(2, results.items.len);
         try expectEqualStrings("1122", results.items[0].sentences.items[0]);
         try expectEqualStrings("2233", results.items[1].sentences.items[0]);
-        try expectEqual(results.items[2].uid, results.items[1].uid);
         data1b = try resources.read_data(results.items[0], std.testing.allocator);
         try expectEqual(1, resources.used_resource_list.?.items.len);
         data2b = try resources.read_data(results.items[1], std.testing.allocator);

@@ -63,8 +63,8 @@ pub const Resource = struct {
                 resource.visible = true;
                 if (sentence_text) |s| {
                     try resource.sentences.append(try arena_allocator.dupe(u8, s));
-                    if (std.mem.endsWith(u8, s, "."))
-                        try resource.sentences.append(try arena_allocator.dupe(u8, s[0 .. s.len - 1]));
+                    if (sentence_trim(s)) |trim|
+                        try resource.sentences.append(try arena_allocator.dupe(u8, trim));
                 } else {
                     return error.MetadataMissing;
                 }
@@ -212,8 +212,8 @@ fn load_metadata(
                 .sentence => {
                     if (entry.value.len > 0)
                         try resource.sentences.append(try arena.dupe(u8, entry.value));
-                    if (entry.value.len > 1 and std.mem.endsWith(u8, entry.value, "."))
-                        try resource.sentences.append(try arena.dupe(u8, entry.value[0 .. entry.value.len - 1]));
+                    if (sentence_trim(entry.value)) |trim|
+                        try resource.sentences.append(try arena.dupe(u8, trim));
                 },
                 else => {},
             }
@@ -243,3 +243,4 @@ const Resources = @import("resources.zig").Resources;
 const Parser = @import("praxis").Parser;
 const load_file_bytes = @import("resources.zig").load_file_bytes;
 const write_file_bytes = @import("resources.zig").write_file_bytes;
+const sentence_trim = @import("resources.zig").sentence_trim;
