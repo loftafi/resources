@@ -1004,6 +1004,22 @@ test "search resources" {
     try expectEqual(2, results.items.len);
 
     results.clearRetainingCapacity();
+    try resources.lookup("ἄρτος", .audio, true, &results);
+    try expectEqual(1, results.items.len);
+
+    results.clearRetainingCapacity();
+    try resources.lookup("ἄρτος.", .audio, true, &results);
+    try expectEqual(1, results.items.len);
+
+    results.clearRetainingCapacity();
+    try resources.lookup("ἄρτος;", .audio, true, &results);
+    try expectEqual(1, results.items.len);
+
+    results.clearRetainingCapacity();
+    try resources.lookup("ἄρτος", .image, true, &results);
+    try expectEqual(0, results.items.len);
+
+    results.clearRetainingCapacity();
     try resources.lookup("γυναῖκας· βλέψατε!", .any, true, &results);
     try expectEqual(1, results.items.len);
 
