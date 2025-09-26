@@ -717,7 +717,7 @@ fn get_file_type(file: []const u8) struct { name: []const u8, extension: Resourc
 }
 
 /// Placeholder sort function for Resource record.
-pub fn lessThan(_: void, self: *Resource, other: *Resource) bool {
+pub fn lessThan(_: ?[]const u8, self: *Resource, other: *Resource) bool {
     return self.uid < other.uid;
 }
 
