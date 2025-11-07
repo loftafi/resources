@@ -21,7 +21,7 @@ pub const Resources = struct {
     arena: *std.heap.ArenaAllocator,
     arena_allocator: Allocator,
     parent_allocator: Allocator,
-    used_resource_list: ?ArrayList(*Resource),
+    used_resource_list: ?ArrayListUnmanaged(*Resource),
 
     folder: []const u8 = "",
     bundle_file: []const u8 = "",
@@ -96,7 +96,7 @@ pub const Resources = struct {
             .parent_allocator = parent_allocator,
             .folder = "",
             .bundle_file = "",
-            .used_resource_list = ArrayList(*Resource).init(arena_allocator),
+            .used_resource_list = .empty,
         };
 
         return resources;
@@ -105,8 +105,8 @@ pub const Resources = struct {
     pub fn destroy(self: *Resources) void {
         self.normalise.deinit(self.arena_allocator);
 
-        if (self.used_resource_list) |manifest| {
-            manifest.deinit();
+        if (self.used_resource_list) |*manifest| {
+            manifest.deinit(self.arena_allocator);
         }
 
         // Iterate over the master resource list to
@@ -136,38 +136,37 @@ pub const Resources = struct {
     // so that files inside can be searched/loaded.
     pub fn load_bundle(self: *Resources, bundle_filename: []const u8) !void {
         var buffer: [300:0]u8 = undefined;
+        var rbuffer: [4196:0]u8 = undefined;
         const e = std.builtin.Endian.little;
 
         var file = try std.fs.cwd().openFile(bundle_filename, .{});
         defer file.close();
-        var fbuffer = std.io.bufferedReader(file.reader());
-        var rb = fbuffer.reader();
-
-        const b1 = try rb.readInt(u8, e);
-        const b2 = try rb.readInt(u8, e);
-        const b3 = try rb.readInt(u8, e);
+        var rb = file.reader(&rbuffer);
+        const b1 = try rb.interface.takeInt(u8, e);
+        const b2 = try rb.interface.takeInt(u8, e);
+        const b3 = try rb.interface.takeInt(u8, e);
         if (b1 + 9 != b2) {
             return error.InvalidBundleFile;
         }
         if (b1 + 1 != b3) {
             return error.InvalidBundleFile;
         }
-        const entries = try rb.readInt(u24, e);
+        const entries = try rb.interface.takeInt(u24, e);
         for (0..entries) |_| {
             var r = try Resource.create(self.arena_allocator);
             errdefer r.destroy(self.arena_allocator);
-            const resource_type = try rb.readInt(u8, e);
+            const resource_type = try rb.interface.takeInt(u8, e);
             r.resource = @enumFromInt(resource_type);
-            r.uid = try rb.readInt(u64, e);
-            r.size = try rb.readInt(u32, e);
-            const sentence_count = try rb.readInt(u8, e);
+            r.uid = try rb.interface.takeInt(u64, e);
+            r.size = try rb.interface.takeInt(u32, e);
+            const sentence_count = try rb.interface.takeInt(u8, e);
             for (0..sentence_count) |_| {
-                const name_len: u8 = try rb.readInt(u8, e);
-                try rb.readNoEof(buffer[0..name_len]);
+                const name_len: u8 = try rb.interface.takeInt(u8, e);
+                try rb.interface.readSliceAll(buffer[0..name_len]);
                 const text = try self.arena_allocator.dupe(u8, buffer[0..name_len]);
-                try r.sentences.append(text);
+                try r.sentences.append(self.arena_allocator, text);
             }
-            r.bundle_offset = try rb.readInt(u64, e);
+            r.bundle_offset = try rb.interface.takeInt(u64, e);
 
             try self.by_uid.put(r.uid, r);
             for (r.sentences.items) |sentence| {
@@ -194,15 +193,15 @@ pub const Resources = struct {
     // with a table of contents.
     pub fn save_bundle(self: *Resources, filename: []const u8, manifest: []*Resource) !void {
         const version = 1;
-        var header = ArrayList(u8).init(self.parent_allocator);
-        defer header.deinit();
-        var header_items = ArrayList(BundleResource).init(self.parent_allocator);
-        defer header_items.deinit();
+        var header: ArrayListUnmanaged(u8) = .empty;
+        defer header.deinit(self.parent_allocator);
+        var header_items: ArrayListUnmanaged(BundleResource) = .empty;
+        defer header_items.deinit(self.parent_allocator);
 
         const b1 = @as(u8, @intCast(random(230) + 10));
-        try append_u8(&header, b1);
-        try append_u8(&header, b1 + 9);
-        try append_u8(&header, b1 + version);
+        try append_u8(&header, b1, self.parent_allocator);
+        try append_u8(&header, b1 + 9, self.parent_allocator);
+        try append_u8(&header, b1 + version, self.parent_allocator);
 
         const output = std.fs.cwd().createFile(filename, .{ .truncate = true }) catch |e| {
             log.err("Repo file missing: {s}", .{filename});
@@ -239,7 +238,7 @@ pub const Resources = struct {
                 });
                 continue;
             }
-            try header_items.append(.{
+            try header_items.append(self.parent_allocator, .{
                 .type = @intFromEnum(resource.resource),
                 .uid = resource.uid,
                 .size = @as(u32, @intCast(stat.size)),
@@ -251,19 +250,19 @@ pub const Resources = struct {
             }
         }
 
-        try append_u24(&header, @as(u24, @intCast(header_items.items.len)));
+        try append_u24(&header, @as(u24, @intCast(header_items.items.len)), self.parent_allocator);
 
         // Add the table of contents
         for (header_items.items) |item| {
-            try append_u8(&header, @as(u8, item.type));
-            try append_u64(&header, item.uid);
-            try append_u32(&header, @intCast(item.size));
-            try append_u8(&header, @intCast(item.names.len));
+            try append_u8(&header, @as(u8, item.type), self.parent_allocator);
+            try append_u64(&header, item.uid, self.parent_allocator);
+            try append_u32(&header, @intCast(item.size), self.parent_allocator);
+            try append_u8(&header, @intCast(item.names.len), self.parent_allocator);
             for (item.names) |sentence| {
-                try append_u8(&header, @as(u8, @intCast(sentence.len)));
-                try header.appendSlice(sentence);
+                try append_u8(&header, @as(u8, @intCast(sentence.len)), self.parent_allocator);
+                try header.appendSlice(self.parent_allocator, sentence);
             }
-            try append_u64(&header, file_index);
+            try append_u64(&header, file_index, self.parent_allocator);
             file_index += item.size;
         }
 
@@ -303,8 +302,8 @@ pub const Resources = struct {
 
         self.folder = try self.arena_allocator.dupeZ(u8, folder);
 
-        var filename = ArrayList(u8).init(self.parent_allocator);
-        defer filename.deinit();
+        var filename: ArrayListUnmanaged(u8) = .empty;
+        defer filename.deinit(self.parent_allocator);
 
         var i = dir.iterate();
         while (i.next() catch return error.ReadRepoFileFailed) |file| {
@@ -330,11 +329,11 @@ pub const Resources = struct {
             }
 
             filename.clearRetainingCapacity();
-            try filename.appendSlice(folder);
+            try filename.appendSlice(self.parent_allocator, folder);
             if (filename.items[filename.items.len - 1] != '/') {
-                try filename.append('/');
+                try filename.append(self.parent_allocator, '/');
             }
-            try filename.appendSlice(file.name);
+            try filename.appendSlice(self.parent_allocator, file.name);
 
             var resource: ?*Resource = null;
             switch (file_info.extension) {
@@ -516,20 +515,21 @@ pub const Resources = struct {
         self: *Resources,
         keywords: []const []const u8,
         category: SearchCategory,
-        results: *ArrayList(*Resource),
+        results: *ArrayListUnmanaged(*Resource),
+        allocator: Allocator,
     ) !void {
         for (keywords) |keyword| {
             const r = self.by_word.lookup(keyword);
             if (r != null) {
                 for (r.?.exact_accented.items) |x| {
                     if (category.matches(x.resource)) {
-                        try results.append(x);
+                        try results.append(allocator, x);
                     }
                 }
                 if (results.items.len == 0) {
                     for (r.?.exact_unaccented.items) |x| {
                         if (category.matches(x.resource)) {
-                            try results.append(x);
+                            try results.append(allocator, x);
                         }
                     }
                 }
@@ -546,15 +546,16 @@ pub const Resources = struct {
         sentence: []const u8,
         category: SearchCategory,
         partial_match: bool,
-        results: *ArrayList(*Resource),
+        results: *ArrayListUnmanaged(*Resource),
+        allocator: Allocator,
     ) (error{OutOfMemory} || Error)!void {
         if (sentence.len == 0) return;
 
         // Normalise to nfc and normalise the characters with index rules.
         const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
         defer sentence_nfc.deinit(self.parent_allocator);
-        var unaccented = std.BoundedArray(u8, max_word_size + 1){};
-        var normalised = std.BoundedArray(u8, max_word_size + 1){};
+        var unaccented = BoundedArray(u8, max_word_size + 1){};
+        var normalised = BoundedArray(u8, max_word_size + 1){};
         normalise_word(sentence_nfc.slice, &unaccented, &normalised) catch |f| {
             if (f == error.EmptyWord) return error.QueryEmpty;
             if (f == error.WordTooLong) return error.QueryTooLong;
@@ -579,14 +580,14 @@ pub const Resources = struct {
         if (search_results) |r| {
             for (r.exact_accented.items) |x| {
                 if (category.matches(x.resource))
-                    try append_if_not_found(results, x);
+                    try append_if_not_found(results, allocator, x);
             }
         }
 
         if (trimmed_results) |tr| {
             for (tr.exact_accented.items) |x| {
                 if (category.matches(x.resource))
-                    try append_if_not_found(results, x);
+                    try append_if_not_found(results, allocator, x);
             }
         }
 
@@ -594,14 +595,14 @@ pub const Resources = struct {
             if (search_results) |r| {
                 for (r.exact_unaccented.items) |x| {
                     if (category.matches(x.resource))
-                        try append_if_not_found(results, x);
+                        try append_if_not_found(results, allocator, x);
                 }
             }
 
             if (trimmed_results) |tr| {
                 for (tr.exact_unaccented.items) |x| {
                     if (category.matches(x.resource))
-                        try append_if_not_found(results, x);
+                        try append_if_not_found(results, allocator, x);
                 }
             }
         }
@@ -610,7 +611,7 @@ pub const Resources = struct {
             if (search_results) |r| {
                 for (r.partial_match.items) |x| {
                     if (category.matches(x.resource))
-                        try append_if_not_found(results, x);
+                        try append_if_not_found(results, allocator, x);
                 }
                 if (results.items.len > 0)
                     return;
@@ -619,7 +620,7 @@ pub const Resources = struct {
             if (trimmed_results) |tr| {
                 for (tr.partial_match.items) |x| {
                     if (category.matches(x.resource))
-                        try append_if_not_found(results, x);
+                        try append_if_not_found(results, allocator, x);
                 }
                 if (results.items.len > 0)
                     return;
@@ -633,12 +634,13 @@ pub const Resources = struct {
         self: *Resources,
         sentence: []const u8,
         category: SearchCategory,
+        allocator: Allocator,
     ) (error{OutOfMemory} || Error)!?*Resource {
         if (sentence.len == 0) return null;
 
-        var results = ArrayList(*Resource).init(self.parent_allocator);
-        defer results.deinit();
-        try self.lookup(sentence, category, false, &results);
+        var results: ArrayListUnmanaged(*Resource) = .empty;
+        defer results.deinit(allocator);
+        try self.lookup(sentence, category, false, &results, allocator);
         if (results.items.len > 0)
             return results.items[0];
 
@@ -654,7 +656,7 @@ pub const Resources = struct {
         allocator: Allocator,
     ) ![]const u8 {
         if (self.used_resource_list) |*manifest| {
-            try manifest.append(resource);
+            try manifest.append(self.arena_allocator, resource);
         }
         if (resource.filename) |filename| {
             // Resource has a filename, read a file.
@@ -722,13 +724,14 @@ pub fn lessThan(_: ?[]const u8, self: *Resource, other: *Resource) bool {
 }
 
 inline fn append_if_not_found(
-    results: *ArrayList(*Resource),
+    results: *ArrayListUnmanaged(*Resource),
+    allocator: Allocator,
     resource: *Resource,
 ) error{OutOfMemory}!void {
     for (results.items) |item| {
         if (item.uid == resource.uid) return;
     }
-    try results.append(resource);
+    try results.append(allocator, resource);
 }
 
 /// Describes a table of contents entry in a bundle file.
@@ -897,12 +900,13 @@ test "read resource info space" {
 }
 
 test "load_resource image" {
-    var resources = try Resources.create(std.testing.allocator);
+    const gpa = std.testing.allocator;
+    var resources = try Resources.create(gpa);
     defer resources.destroy();
 
-    var file = ArrayList(u8).init(std.testing.allocator);
-    defer file.deinit();
-    try file.appendSlice("./test/repo/GzeBWE.png");
+    var file: std.ArrayListUnmanaged(u8) = .empty;
+    defer file.deinit(gpa);
+    try file.appendSlice(gpa, "./test/repo/GzeBWE.png");
     const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .png, null, &resources.normalise);
     defer resource.destroy(std.testing.allocator);
     try expectEqual(3989967536, resource.uid);
@@ -913,12 +917,13 @@ test "load_resource image" {
 }
 
 test "load_resource audio" {
-    var resources = try Resources.create(std.testing.allocator);
+    const gpa = std.testing.allocator;
+    var resources = try Resources.create(gpa);
     defer resources.destroy();
 
-    var file = ArrayList(u8).init(std.testing.allocator);
-    defer file.deinit();
-    try file.appendSlice("./test/repo/jay~ἄρτος.wav");
+    var file: std.ArrayList(u8) = .empty;
+    defer file.deinit(gpa);
+    try file.appendSlice(gpa, "./test/repo/jay~ἄρτος.wav");
     const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .wav, "ἄρτος", &resources.normalise);
     defer resource.destroy(std.testing.allocator);
     //try expectEqual(3989967536, resource.uid);
@@ -929,14 +934,15 @@ test "load_resource audio" {
 }
 
 test "search resources" {
-    var keywords = ArrayList([]const u8).init(std.testing.allocator);
-    defer keywords.deinit();
-    try keywords.append("ἄγγελος");
+    const gpa = std.testing.allocator;
+    var keywords: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer keywords.deinit(gpa);
+    try keywords.append(gpa, "ἄγγελος");
 
-    var results = ArrayList(*Resource).init(std.testing.allocator);
-    defer results.deinit();
+    var results: std.ArrayListUnmanaged(*Resource) = .empty;
+    defer results.deinit(gpa);
 
-    var resources = try Resources.create(std.testing.allocator);
+    var resources = try Resources.create(gpa);
     defer resources.destroy();
 
     _ = try resources.load_directory("./test/repo/");
@@ -947,7 +953,7 @@ test "search resources" {
     //}
 
     results.clearRetainingCapacity();
-    try resources.search(keywords.items, .any, &results);
+    try resources.search(keywords.items, .any, &results, gpa);
     try expectEqual(0, results.items.len);
 
     // Test files have this exact string
@@ -963,68 +969,68 @@ test "search resources" {
     try expect(resources.by_filename.index.get("ὁ Δαυὶδ λέγει·") == null);
 
     results.clearRetainingCapacity();
-    try resources.lookup("fewhfoihsd4565", .any, true, &results);
+    try resources.lookup("fewhfoihsd4565", .any, true, &results, gpa);
     try expectEqual(0, results.items.len);
-    try resources.lookup("GzeBWE", .any, true, &results);
+    try resources.lookup("GzeBWE", .any, true, &results, gpa);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("κρέα", .any, true, &results);
+    try resources.lookup("κρέα", .any, true, &results, gpa);
     try expectEqual(2, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("μάχαιρα", .any, true, &results);
+    try resources.lookup("μάχαιρα", .any, true, &results, gpa);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("μάχαιρα.", .any, true, &results);
+    try resources.lookup("μάχαιρα.", .any, true, &results, gpa);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("ὁ δαυὶδ λέγει", .any, true, &results);
+    try resources.lookup("ὁ δαυὶδ λέγει", .any, true, &results, gpa);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("ὁ Δαυὶδ λέγει", .any, true, &results);
+    try resources.lookup("ὁ Δαυὶδ λέγει", .any, true, &results, gpa);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, true, &results);
+    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, true, &results, gpa);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, true, &results);
+    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, true, &results, gpa);
     try expectEqual(1, results.items.len);
 
     // Not the start of a sentence
     results.clearRetainingCapacity();
-    try resources.lookup("Δαυὶδ", .any, true, &results);
+    try resources.lookup("Δαυὶδ", .any, true, &results, gpa);
     try expectEqual(0, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("πτωχός", .any, true, &results);
+    try resources.lookup("πτωχός", .any, true, &results, gpa);
     try expectEqual(2, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("πτωχός.", .any, true, &results);
+    try resources.lookup("πτωχός.", .any, true, &results, gpa);
     try expectEqual(2, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος", .audio, true, &results);
+    try resources.lookup("ἄρτος", .audio, true, &results, gpa);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος.", .audio, true, &results);
+    try resources.lookup("ἄρτος.", .audio, true, &results, gpa);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος;", .audio, true, &results);
+    try resources.lookup("ἄρτος;", .audio, true, &results, gpa);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος", .image, true, &results);
+    try resources.lookup("ἄρτος", .image, true, &results, gpa);
     try expectEqual(0, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("γυναῖκας· βλέψατε!", .any, true, &results);
+    try resources.lookup("γυναῖκας· βλέψατε!", .any, true, &results, gpa);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("γυναῖκας· βλέψατε", .any, true, &results);
+    try resources.lookup("γυναῖκας· βλέψατε", .any, true, &results, gpa);
     try expectEqual(1, results.items.len);
 }
 
@@ -1076,6 +1082,7 @@ test "wav_filename" {
 }
 
 test "bundle" {
+    const gpa = std.testing.allocator;
     const TEST_BUNDLE_FILENAME: []const u8 = "/tmp/bundle.bd";
     var data1: []const u8 = "";
     var data2: []const u8 = "";
@@ -1083,22 +1090,22 @@ test "bundle" {
     var data2b: []const u8 = "";
 
     {
-        var resources = try Resources.create(std.testing.allocator);
+        var resources = try Resources.create(gpa);
         defer resources.destroy();
         _ = try resources.load_directory("./test/repo/");
 
-        var results = ArrayList(*Resource).init(std.testing.allocator);
-        defer results.deinit();
+        var results: ArrayListUnmanaged(*Resource) = .empty;
+        defer results.deinit(gpa);
 
-        try resources.lookup("1122", .any, true, &results);
+        try resources.lookup("1122", .any, true, &results, gpa);
         try expectEqual(1, results.items.len);
-        try resources.lookup("2233", .any, true, &results);
+        try resources.lookup("2233", .any, true, &results, gpa);
         try expectEqual(2, results.items.len);
         try expectEqualStrings("1122", results.items[0].sentences.items[0]);
         try expectEqualStrings("2233", results.items[1].sentences.items[0]);
-        data1 = try resources.read_data(results.items[0], std.testing.allocator);
+        data1 = try resources.read_data(results.items[0], gpa);
         try expectEqual(1, resources.used_resource_list.?.items.len);
-        data2 = try resources.read_data(results.items[1], std.testing.allocator);
+        data2 = try resources.read_data(results.items[1], gpa);
         try expectEqual(2, resources.used_resource_list.?.items.len);
 
         try resources.save_bundle(TEST_BUNDLE_FILENAME, resources.used_resource_list.?.items);
@@ -1111,31 +1118,31 @@ test "bundle" {
         defer resources.destroy();
         try resources.load_bundle(TEST_BUNDLE_FILENAME);
 
-        var results = ArrayList(*Resource).init(std.testing.allocator);
-        defer results.deinit();
+        var results: ArrayListUnmanaged(*Resource) = .empty;
+        defer results.deinit(gpa);
 
-        try resources.lookup("1122", .any, true, &results);
+        try resources.lookup("1122", .any, true, &results, gpa);
         try expectEqual(1, results.items.len);
-        try resources.lookup("2233", .any, true, &results);
+        try resources.lookup("2233", .any, true, &results, gpa);
         try expectEqual(2, results.items.len);
-        try resources.lookup("abcd", .any, true, &results);
+        try resources.lookup("abcd", .any, true, &results, gpa);
         try expectEqual(2, results.items.len);
         try expectEqualStrings("1122", results.items[0].sentences.items[0]);
         try expectEqualStrings("2233", results.items[1].sentences.items[0]);
-        data1b = try resources.read_data(results.items[0], std.testing.allocator);
+        data1b = try resources.read_data(results.items[0], gpa);
         try expectEqual(1, resources.used_resource_list.?.items.len);
-        data2b = try resources.read_data(results.items[1], std.testing.allocator);
+        data2b = try resources.read_data(results.items[1], gpa);
         try expectEqual(2, resources.used_resource_list.?.items.len);
 
         results.clearRetainingCapacity();
-        try resources.lookup("1122.", .any, true, &results);
+        try resources.lookup("1122.", .any, true, &results, gpa);
         try expectEqual(1, results.items.len);
         results.clearRetainingCapacity();
-        try resources.lookup("1122·", .any, true, &results);
+        try resources.lookup("1122·", .any, true, &results, gpa);
         try expectEqual(1, results.items.len);
     }
-    defer std.testing.allocator.free(data1b);
-    defer std.testing.allocator.free(data2b);
+    defer gpa.free(data1b);
+    defer gpa.free(data2b);
 
     try expectEqualStrings(data1, data1b);
     try expectEqualStrings(data2, data2b);
@@ -1143,7 +1150,7 @@ test "bundle" {
 
 const builtin = @import("builtin");
 const std = @import("std");
-const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const log = std.log;
 const warn = std.log.warn;
 const err = std.log.err;
@@ -1165,6 +1172,7 @@ pub const Resource = @import("resource.zig").Resource;
 pub const exportImage = @import("export_image.zig").exportImage;
 
 const Parser = @import("praxis").Parser;
+const BoundedArray = @import("praxis").BoundedArray;
 const SearchIndex = @import("praxis").SearchIndex;
 const normalise_word = @import("praxis").normalise_word;
 const max_word_size = @import("praxis").MAX_WORD_SIZE;

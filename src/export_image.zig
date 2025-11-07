@@ -94,7 +94,7 @@ pub fn exportImage(
     defer allocator.free(to_dir_name);
     const joined = try std.fs.path.join(allocator, &[_][]const u8{ to_dir_name, to_name });
     defer allocator.free(joined);
-    const to_filename_z = try std.fmt.allocPrintZ(allocator, "{s}", .{joined});
+    const to_filename_z = try std.fmt.allocPrintSentinel(allocator, "{s}", .{joined}, 0);
     defer allocator.free(to_filename_z);
 
     if (mode == .cover) {
@@ -110,16 +110,17 @@ pub fn exportImage(
         const format: zstbi.ImageWriteFormat = .png;
         const temp_filename = "/tmp/temp.out.png";
         try zstbi.Image.writeToFile(img, temp_filename, format);
-        var image = try zigimg.Image.fromFilePath(allocator, temp_filename);
-        defer image.deinit();
+        var temp_buffer: [4192]u8 = undefined;
+        var image = try zigimg.Image.fromFilePath(allocator, temp_filename, &temp_buffer);
+        defer image.deinit(allocator);
         var cropped = try image.crop(allocator, .{
             .x = @intFromFloat(x),
             .y = @intFromFloat(y),
             .width = @intFromFloat(bounded.width),
             .height = @intFromFloat(bounded.height),
         });
-        defer cropped.deinit();
-        try cropped.writeToFilePath(to_filename_z, .{ .png = .{} });
+        defer cropped.deinit(allocator);
+        try cropped.writeToFilePath(allocator, to_filename_z, &temp_buffer, .{ .png = .{} });
     } else {
         // No crop needed, just save the file
 
@@ -377,7 +378,7 @@ test "export_image" {
     defer resources.destroy();
     _ = try resources.load_directory("./test/repo/");
 
-    const resource = try resources.lookupOne("δύο κρέα", .image);
+    const resource = try resources.lookupOne("δύο κρέα", .image, gpa);
     try expect(resource != null);
 
     const to_dir = std.fs.cwd();

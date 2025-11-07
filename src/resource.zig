@@ -10,7 +10,7 @@ pub const Resource = struct {
     resource: Type,
     date: ?[]const u8,
     copyright: ?[]const u8,
-    sentences: ArrayList([]const u8),
+    sentences: ArrayListUnmanaged([]const u8),
 
     // on disk resource has a filename
     filename: ?[:0]u8 = null,
@@ -19,13 +19,13 @@ pub const Resource = struct {
     bundle_offset: ?u64 = null,
     size: usize = 0,
 
-    pub fn create(arena_allocator: Allocator) error{OutOfMemory}!*Resource {
-        const resource = try arena_allocator.create(Resource);
-        errdefer arena_allocator.destroy(resource);
+    pub fn create(arena: Allocator) error{OutOfMemory}!*Resource {
+        const resource = try arena.create(Resource);
+        errdefer arena.destroy(resource);
         resource.* = .{
             .uid = 0,
             .resource = .unknown,
-            .sentences = ArrayList([]const u8).init(arena_allocator),
+            .sentences = .empty,
             .filename = null,
             .bundle_offset = null,
             .visible = true,
@@ -37,8 +37,8 @@ pub const Resource = struct {
     }
 
     pub fn load(
-        parent_allocator: Allocator,
-        arena_allocator: Allocator,
+        gpa: Allocator,
+        arena: Allocator,
         filename: []u8,
         file_type: Resource.Type,
         sentence_text: ?[]const u8,
@@ -50,36 +50,36 @@ pub const Resource = struct {
         ReadMetadataFailed,
         InvalidResourceUID,
     }!*Resource {
-        var resource = try Resource.create(arena_allocator);
-        errdefer resource.destroy(arena_allocator);
+        var resource = try Resource.create(arena);
+        errdefer resource.destroy(arena);
 
         switch (file_type) {
             .svg, .jpx, .csv, .xml, .png, .jpg, .bin => {
                 if (filename.len > 0)
-                    resource.filename = try arena_allocator.dupeZ(u8, filename);
-                try load_metadata(normalise, resource, filename, arena_allocator, parent_allocator);
+                    resource.filename = try arena.dupeZ(u8, filename);
+                try load_metadata(normalise, resource, filename, arena, gpa);
             },
             .wav => {
                 resource.visible = true;
                 if (sentence_text) |s| {
-                    try resource.sentences.append(try arena_allocator.dupe(u8, s));
+                    try resource.sentences.append(arena, try arena.dupe(u8, s));
                     if (sentence_trim(s)) |trim|
-                        try resource.sentences.append(try arena_allocator.dupe(u8, trim));
+                        try resource.sentences.append(arena, try arena.dupe(u8, trim));
                 } else {
                     return error.MetadataMissing;
                 }
                 if (filename.len > 0)
-                    resource.filename = try arena_allocator.dupeZ(u8, filename);
+                    resource.filename = try arena.dupeZ(u8, filename);
             },
             .ttf, .otf => {
                 resource.visible = true;
                 if (sentence_text) |s| {
-                    try resource.sentences.append(try arena_allocator.dupe(u8, s));
+                    try resource.sentences.append(arena, try arena.dupe(u8, s));
                 } else {
                     return error.MetadataMissing;
                 }
                 if (filename.len > 0)
-                    resource.filename = try arena_allocator.dupeZ(u8, filename);
+                    resource.filename = try arena.dupeZ(u8, filename);
             },
             .unknown => {
                 return error.MetadataMissing;
@@ -93,7 +93,7 @@ pub const Resource = struct {
         for (self.sentences.items) |s| {
             if (s.len > 0) allocator.free(s);
         }
-        self.sentences.deinit();
+        self.sentences.deinit(allocator);
 
         if (self.filename != null) allocator.free(self.filename.?);
         if (self.copyright != null) allocator.free(self.copyright.?);
@@ -211,9 +211,9 @@ fn load_metadata(
                 },
                 .sentence => {
                     if (entry.value.len > 0)
-                        try resource.sentences.append(try arena.dupe(u8, entry.value));
+                        try resource.sentences.append(arena, try arena.dupe(u8, entry.value));
                     if (sentence_trim(entry.value)) |trim|
-                        try resource.sentences.append(try arena.dupe(u8, trim));
+                        try resource.sentences.append(arena, try arena.dupe(u8, trim));
                 },
                 else => {},
             }
@@ -230,7 +230,7 @@ fn is_true(text: []const u8) bool {
 
 const std = @import("std");
 const warn = std.log.warn;
-const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Allocator = std.mem.Allocator;
 
 const Normalize = @import("Normalize");

@@ -1,29 +1,29 @@
 .{
     .name = .resources,
-    .version = "0.2.11",
+    .version = "0.3.0",
     .fingerprint = 0xef66ebae23b04127, // Changing this has security and trust implications.
     .minimum_zig_version = "0.14.1",
 
     .dependencies = .{
         .praxis = .{
-            .url = "git+https://github.com/loftafi/praxis.git#5bf17dcb0be38c2e8893497fd7705a8aac89faab",
-            .hash = "praxis-0.3.4-FPf2NQaKBgD5jZibTbSSNx_rqFzEBqSeDLd-7RK3dujC",
+            .url = "git+https://github.com/loftafi/praxis.git#81587fed77401605ded7903748a9ed5ecec6a262",
+            .hash = "praxis-0.4.1-FPf2NT7HBgDtUC273M_Ru4ronwQfeXYyfvZyDDm6bU9m",
         },
         .zstbi = .{
-            .url = "git+https://github.com/zig-gamedev/zstbi#a70604a93988ee553d0ae6a3871726270a6025d5",
-            .hash = "zstbi-0.11.0-dev-L0Ea_9WVBwAO8t0Qbr87vnCEf1QBcNQHbV-O_D0UWYqT",
-        },
-        .zg = .{
-            .url = "https://codeberg.org/atman/zg/archive/v0.14.1.tar.gz",
-            .hash = "zg-0.14.1-oGqU3IQ_tALZIiBN026_NTaPJqU-Upm8P_C7QED2Rzm8",
+            .url = "git+https://github.com/zig-gamedev/zstbi#2c4b3100ccb7aed90ecc9439030899764e2a8d47",
+            .hash = "zstbi-0.11.0-dev-L0Ea_yaWBwAHwFoCuyjkFyaiSsbjt4UOrkntR0c_nmzz",
         },
         .zigimg = .{
-            .url = "git+https://github.com/zigimg/zigimg.git#70a3abe922d65ec13b488b0890970edcf11e0006",
-            .hash = "zigimg-0.1.0-8_eo2oFJEwDQjDFXp7mdV7KXQiMIRAYCl7Y0z91NdxG2",
+            .url = "git+https://github.com/zigimg/zigimg.git#f5783e87627cbd9e0b45fad112e9f73503914f36",
+            .hash = "zigimg-0.1.0-8_eo2vBrFQBhsrLpexdcDQY-zrlzkyFZfKuYX-Nry6KN",
         },
         .plutosvg = .{
             .url = "git+https://github.com/JacobCrabill/zig-plutosvg#518e00df9412df30eea6a1934a7edd2658cdd2d9",
             .hash = "plutosvg-0.0.6-LyMxgbMuAADqe6_HVbOOBTtsmMVlb-ar-iOc7pRrPQYc",
+        },
+        .zg = .{
+            .url = "git+https://codeberg.org/chaten/zg#749197a3f9d25e211615960c02380a3d659b20f9",
+            .hash = "zg-0.15.1-oGqU3M0-tALZCy7boQS86znlBloyKx6--JriGlY0Paa9",
         },
     },
 

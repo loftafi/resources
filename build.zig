@@ -76,7 +76,7 @@ pub fn add_imports(
     // For TranslateC to work, we need the system library headers
     switch (target.result.os.tag) {
         .macos => {
-            const sdk = std.zig.system.darwin.getSdk(b.allocator, target.result) orelse
+            const sdk = std.zig.system.darwin.getSdk(b.allocator, &target.result) orelse
                 @panic("macOS SDK is missing");
             lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
                 sdk,
@@ -88,7 +88,7 @@ pub fn add_imports(
             }) });
         },
         .ios => {
-            const sdk = std.zig.system.darwin.getSdk(b.allocator, target.result) orelse
+            const sdk = std.zig.system.darwin.getSdk(b.allocator, &target.result) orelse
                 @panic("macOS SDK is missing");
             lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
                 sdk,
