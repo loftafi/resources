@@ -6,8 +6,8 @@
 
     .dependencies = .{
         .praxis = .{
-            .url = "git+https://github.com/loftafi/praxis.git#81587fed77401605ded7903748a9ed5ecec6a262",
-            .hash = "praxis-0.4.1-FPf2NT7HBgDtUC273M_Ru4ronwQfeXYyfvZyDDm6bU9m",
+            .url = "git+https://github.com/loftafi/praxis.git#d36cedfcd43071a144dcefd7cadc28ccdc7fa108",
+            .hash = "praxis-0.4.2-FPf2NYbHBgDZl3Wyn59xUjsn4PFKPfOE8rw9RaVkOdRR",
         },
         .zstbi = .{
             .url = "git+https://github.com/zig-gamedev/zstbi#2c4b3100ccb7aed90ecc9439030899764e2a8d47",
