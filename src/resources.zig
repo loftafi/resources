@@ -312,8 +312,11 @@ pub const Resources = struct {
             const file_info = get_file_type(file.name);
 
             if (file_info.extension == .unknown) {
+                if (!std.mem.endsWith(u8, file.name, ".txt"))
+                    err("skipping unhandled file {s} ({s} {s})", .{ file.name, file_info.name, @tagName(file_info.extension) });
                 continue;
             }
+            //err("handled file {s} ({s} {s})", .{ file.name, file_info.name, @tagName(file_info.extension) });
 
             // Check the filename is nfc encoded
             const file_nfc = try self.normalise.nfc(self.parent_allocator, file.name);
@@ -353,7 +356,7 @@ pub const Resources = struct {
 
             // Lookup by UID
             if (self.by_uid.contains(resource.uid)) {
-                log.err("error: duplicated uid {any} file {s}\n", .{
+                err("error: duplicated uid {any} file {s}\n", .{
                     resource.uid,
                     filename.items,
                 });
@@ -368,7 +371,7 @@ pub const Resources = struct {
                 file_info.name,
                 resource,
             ) catch |e| {
-                log.err("error: invalid metadata in file {any} {s} {any}\n", .{
+                err("error: invalid metadata in file {any} {s} {any}\n", .{
                     resource.uid,
                     filename.items,
                     e,
@@ -925,12 +928,16 @@ test "search resources" {
     try resources.lookup("κρέα", .any, true, &results, gpa);
     try expectEqual(2, results.items.len);
     results.clearRetainingCapacity();
+
+    // A wav file and an image file match this
     try resources.lookup("μάχαιρα", .any, true, &results, gpa);
-    try expectEqual(1, results.items.len);
+    try expectEqual(2, results.items.len);
     results.clearRetainingCapacity();
+
     try resources.lookup("μάχαιρα.", .any, true, &results, gpa);
-    try expectEqual(1, results.items.len);
+    try expectEqual(2, results.items.len);
     results.clearRetainingCapacity();
+
     try resources.lookup("ὁ δαυὶδ λέγει", .any, true, &results, gpa);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
@@ -994,6 +1001,10 @@ test "file_name_split" {
     const info3 = get_file_type("/fish/hat/opens.xml");
     try expectEqualStrings("opens", info3.name);
     try expectEqual(.xml, info3.extension);
+
+    const info4 = get_file_type("1122.xml");
+    try expectEqualStrings("1122", info4.name);
+    try expectEqual(.xml, info4.extension);
 }
 
 test "bundle" {
@@ -1009,10 +1020,19 @@ test "bundle" {
         defer resources.destroy();
         _ = try resources.load_directory("./test/repo/");
 
+        //var i = resources.by_filename.index.iterator();
+        //while (i.next()) |r| {
+        //    std.log.err("value >> {s}", .{r.value_ptr.*.keyword});
+        //}
+        try expectEqual(222, resources.by_filename.index.count());
+
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
 
         try resources.lookup("1122", .any, true, &results, gpa);
+        //for (results.items) |r|
+        //    for (r.sentences.items) |s|
+        //        std.log.err("sentence >> {s}", .{s});
         try expectEqual(1, results.items.len);
         try resources.lookup("2233", .any, true, &results, gpa);
         try expectEqual(2, results.items.len);

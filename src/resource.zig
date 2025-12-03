@@ -24,7 +24,7 @@ pub const Resource = struct {
 
     pub const empty: Resource = .{
         .uid = 0,
-        .visible = false,
+        .visible = true,
         .resource = .unknown,
         .date = null,
         .copyright = null,
@@ -161,11 +161,30 @@ pub const Resource = struct {
 
     fn add_sentence(self: *Resource, arena: Allocator, text: []const u8) (error{MetadataMissing} || Allocator.Error)!void {
         if (text.len == 0) return error.MetadataMissing;
-        try self.sentences.append(arena, try arena.dupe(u8, text));
 
-        if (sentence_trim(text)) |trim|
-            if (trim.len > 0)
-                try self.sentences.append(arena, try arena.dupe(u8, trim));
+        var found = false;
+        for (self.sentences.items) |i| {
+            if (std.mem.eql(u8, text, i)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            try self.sentences.append(arena, try arena.dupe(u8, text));
+
+        if (sentence_trim(text)) |trim| {
+            if (trim.len > 0) {
+                found = false;
+                for (self.sentences.items) |i| {
+                    if (std.mem.eql(u8, text, i)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found)
+                    try self.sentences.append(arena, try arena.dupe(u8, trim));
+            }
+        }
     }
 
     /// Supported resource file types
@@ -287,6 +306,8 @@ test "remove_extension" {
     try expectEqualStrings("fish", remove_extension("fish.aaa"));
     try expectEqualStrings("fish", remove_extension("fish.aaaa"));
     try expectEqualStrings("fish", remove_extension("fish.aaaaa"));
+    try expectEqualStrings("fish2", remove_extension("fish2.aaaaa"));
+    try expectEqualStrings("fish22", remove_extension("fish22.aaaaa"));
     try expectEqualStrings("fish", remove_extension("fish"));
     try expectEqualStrings("/happy/fish", remove_extension("/happy/fish"));
     try expectEqualStrings("/ha.ppy/fish", remove_extension("/ha.ppy/fish"));
@@ -375,8 +396,8 @@ test "read_metadata" {
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.read_metadata(gpa, "v:y\nd:1010");
-        try expectEqual(true, r.visible);
+        try r.read_metadata(gpa, "v:n\nd:1010");
+        try expectEqual(false, r.visible);
         try expect(r.date != null);
         try expectEqualStrings("1010", r.date.?);
     }
@@ -384,7 +405,7 @@ test "read_metadata" {
         var r: Resource = .empty;
         defer r.deinit(gpa);
         try r.read_metadata(gpa, "c:bob\ni:12ab");
-        try expectEqual(false, r.visible);
+        try expectEqual(true, r.visible);
         try expect(r.copyright != null);
         try expectEqualStrings("bob", r.copyright.?);
         try expectEqual(6538201, r.uid);
@@ -393,8 +414,8 @@ test "read_metadata" {
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.read_metadata(gpa, "v: y \nd:1010 ");
-        try expectEqual(true, r.visible);
+        try r.read_metadata(gpa, "v: 0 \nd:1010 ");
+        try expectEqual(false, r.visible);
         try expectEqualStrings("1010", r.date.?);
     }
     {
