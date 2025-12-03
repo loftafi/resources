@@ -400,8 +400,11 @@ pub const Resources = struct {
                     continue;
                 },
             }
-            if (resource == null) continue;
-            if (resource.?.visible == false) {
+
+            if (resource == null)
+                continue;
+
+            if (!resource.?.visible) {
                 resource.?.destroy(self.parent_allocator);
                 continue;
             }
@@ -776,9 +779,8 @@ fn get_wav_greek_name(allocator: Allocator, file: []const u8) error{OutOfMemory}
     return try allocator.dupe(u8, name);
 }
 
-/// If there is extra punctuation at the end of a search term, return
-/// a version of the string with trailing punctuation removed. This ensures
-/// resource lookups don't fail because of punctuation mismatches.
+/// Return a slice of a sentence with trailing punctuation removed. This
+/// allows searches to find a non punctuated version of the sentence.
 pub fn sentence_trim(sentence: []const u8) ?[]const u8 {
     var trimmed: []const u8 = sentence;
     while (true) {

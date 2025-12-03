@@ -110,8 +110,9 @@ pub fn exportImage(
         const format: zstbi.ImageWriteFormat = .png;
         const temp_filename = "/tmp/temp.out.png";
         try zstbi.Image.writeToFile(img, temp_filename, format);
-        var temp_buffer: [4192]u8 = undefined;
-        var image = try zigimg.Image.fromFilePath(allocator, temp_filename, &temp_buffer);
+        var temp_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE * 10]u8 = undefined;
+        err("zigimg load file from {s}", .{temp_filename});
+        var image = try zigimg.Image.fromFilePath(allocator, temp_filename, temp_buffer[0..]);
         defer image.deinit(allocator);
         var cropped = try image.crop(allocator, .{
             .x = @intFromFloat(x),

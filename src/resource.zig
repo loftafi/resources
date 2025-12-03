@@ -36,6 +36,15 @@ pub const Resource = struct {
         return resource;
     }
 
+    pub fn add_sentence(self: *Resource, arena: Allocator, text: []const u8) (error{MetadataMissing} || Allocator.Error)!void {
+        if (text.len == 0) return error.MetadataMissing;
+        try self.sentences.append(arena, try arena.dupe(u8, text));
+
+        if (sentence_trim(text)) |trim|
+            if (trim.len > 0)
+                try self.sentences.append(arena, try arena.dupe(u8, trim));
+    }
+
     pub fn load(
         gpa: Allocator,
         arena: Allocator,
@@ -61,23 +70,21 @@ pub const Resource = struct {
             },
             .wav => {
                 resource.visible = true;
-                if (sentence_text) |s| {
-                    try resource.sentences.append(arena, try arena.dupe(u8, s));
-                    if (sentence_trim(s)) |trim|
-                        try resource.sentences.append(arena, try arena.dupe(u8, trim));
-                } else {
+                if (sentence_text) |s|
+                    try resource.add_sentence(arena, s)
+                else
                     return error.MetadataMissing;
-                }
+
                 if (filename.len > 0)
                     resource.filename = try arena.dupeZ(u8, filename);
             },
             .ttf, .otf => {
                 resource.visible = true;
-                if (sentence_text) |s| {
-                    try resource.sentences.append(arena, try arena.dupe(u8, s));
-                } else {
+                if (sentence_text) |s|
+                    try resource.add_sentence(arena, s)
+                else
                     return error.MetadataMissing;
-                }
+
                 if (filename.len > 0)
                     resource.filename = try arena.dupeZ(u8, filename);
             },
@@ -91,7 +98,7 @@ pub const Resource = struct {
 
     pub fn destroy(self: *Resource, allocator: Allocator) void {
         for (self.sentences.items) |s| {
-            if (s.len > 0) allocator.free(s);
+            allocator.free(s);
         }
         self.sentences.deinit(allocator);
 
