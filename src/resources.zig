@@ -69,8 +69,11 @@ pub const Resources = struct {
 
     pub const Error = error{
         FailedReadingRepo,
+        ReadRepoFileFailed,
+        ReadMetadataFailed,
         InvalidResourceUID,
         MetadataMissing,
+        FilenameTooLong,
         ResourceHasNoFilename,
         QueryTooLong,
         QueryEmpty,
@@ -279,18 +282,14 @@ pub const Resources = struct {
     // Load the full list of usable files inside the `folder` along with
     // any associated metadata files so that each file can be searched for
     // and loaded.
-    pub fn load_directory(self: *Resources, folder: []const u8) error{
+    pub fn load_directory(self: *Resources, folder: []const u8) (Error || error{
         OutOfMemory,
-        ReadRepoFileFailed,
-        InvalidResourceUID,
-        MetadataMissing,
-        ReadMetadataFailed,
         Utf8InvalidStartByte,
         Utf8ExpectedContinuation,
         Utf8OverlongEncoding,
         Utf8EncodesSurrogateHalf,
         Utf8CodepointTooLarge,
-    }!bool {
+    })!bool {
         var dir = std.fs.cwd().openDir(folder, .{ .iterate = true }) catch |e| {
             log.warn(
                 "Failed opening resource directory {s}. Error: {any}",
@@ -316,6 +315,7 @@ pub const Resources = struct {
                 continue;
             }
 
+            // Check the filename is nfc encoded
             const file_nfc = try self.normalise.nfc(self.parent_allocator, file.name);
             defer file_nfc.deinit(self.parent_allocator);
             if (file.name.len != file_nfc.slice.len) {
@@ -335,113 +335,55 @@ pub const Resources = struct {
             }
             try filename.appendSlice(self.parent_allocator, file.name);
 
-            var resource: ?*Resource = null;
-            switch (file_info.extension) {
-                .wav => {
-                    if (try get_wav_greek_name(self.parent_allocator, file.name)) |sentence| {
-                        defer self.parent_allocator.free(sentence);
-                        const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
-                        defer sentence_nfc.deinit(self.parent_allocator);
-                        resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, sentence_nfc.slice, &self.normalise) catch |e| {
-                            std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
-                            return e;
-                        };
-                        resource.?.uid = try self.unique_random_u64();
-                        resource.?.resource = file_info.extension;
-                    } else {
-                        continue;
-                    }
-                },
-                .jpg, .png => {
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, null, &self.normalise) catch |e| {
-                        if (e == error.InvalidResourceUID) {
-                            std.debug.print("skipping invalid UID: {s}\n", .{filename.items});
-                            continue;
-                        } else {
-                            std.debug.print("error loading resource: {any}\n", .{e});
-                            return e;
-                        }
-                    };
-                    resource.?.resource = file_info.extension;
-                },
-                .bin => {
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, null, &self.normalise) catch |e| {
-                        if (e == error.InvalidResourceUID) {
-                            std.debug.print("skipping invalid UID: {s}\n", .{filename.items});
-                            continue;
-                        } else {
-                            std.debug.print("error loading resource: {any}\n", .{e});
-                            return e;
-                        }
-                    };
-                    resource.?.resource = file_info.extension;
-                },
-                .ttf, .otf => {
-                    const parts = get_file_type(file.name);
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, parts.name, &self.normalise) catch |e| {
-                        std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
-                        return e;
-                    };
-                    resource.?.uid = try self.unique_random_u64();
-                    resource.?.resource = file_info.extension;
-                },
-                .xml, .jpx, .csv, .svg => {
-                    resource = Resource.load(self.parent_allocator, self.arena_allocator, filename.items, file_info.extension, file_info.name, &self.normalise) catch |e| {
-                        std.debug.print("error loading resource: {s} {any}\n", .{ file.name, e });
-                        return e;
-                    };
-                    resource.?.uid = decode(u64, file_info.name) catch {
-                        return Error.InvalidResourceUID;
-                    };
-                    resource.?.resource = file_info.extension;
-                },
-                else => {
-                    log.err("unknown resource type: {any}\n", .{file_info.extension});
-                    continue;
-                },
-            }
+            var resource = try Resource.create(self.arena_allocator);
+            try resource.load(
+                self.parent_allocator,
+                self.arena_allocator,
+                &self.normalise,
+                filename.items,
+                file_info.name,
+                file_info.extension,
+            );
+            if (resource.uid == 0) resource.uid = try self.unique_random_u64();
 
-            if (resource == null)
-                continue;
-
-            if (!resource.?.visible) {
-                resource.?.destroy(self.parent_allocator);
+            if (!resource.visible) {
+                resource.destroy(self.arena_allocator);
                 continue;
             }
 
             // Lookup by UID
-            if (self.by_uid.contains(resource.?.uid)) {
+            if (self.by_uid.contains(resource.uid)) {
                 log.err("error: duplicated uid {any} file {s}\n", .{
-                    resource.?.uid,
+                    resource.uid,
                     filename.items,
                 });
-                resource.?.destroy(self.arena_allocator);
+                resource.destroy(self.arena_allocator);
                 continue;
             }
-            try self.by_uid.put(resource.?.uid, resource.?);
+            try self.by_uid.put(resource.uid, resource);
 
             // Lookup by filename or sentence
             self.by_filename.add(
                 self.arena_allocator,
                 file_info.name,
-                resource.?,
+                resource,
             ) catch |e| {
                 log.err("error: invalid metadata in file {any} {s} {any}\n", .{
-                    resource.?.uid,
+                    resource.uid,
                     filename.items,
                     e,
                 });
                 return error.ReadMetadataFailed;
             };
-            for (resource.?.sentences.items) |sentence| {
+            for (resource.sentences.items) |sentence| {
                 if (!std.mem.eql(u8, file_info.name, sentence)) {
                     self.by_filename.add(
                         self.arena_allocator,
                         sentence,
-                        resource.?,
+                        resource,
                     ) catch |e| {
                         log.err("error: invalid metadata in file {any} {s} {any}\n", .{
-                            resource.?.uid,
+                            resource.uid,
                             filename.items,
                             e,
                         });
@@ -452,17 +394,17 @@ pub const Resources = struct {
 
             var unique = UniqueWords.init(self.arena_allocator);
             defer unique.deinit();
-            try unique.addArray(&resource.?.sentences.items);
+            try unique.addArray(&resource.sentences.items);
             var it = unique.words.iterator();
             while (it.next()) |word| {
                 if (word.key_ptr.*.len > 0) {
                     self.by_word.add(
                         self.arena_allocator,
                         word.key_ptr.*,
-                        resource.?,
+                        resource,
                     ) catch |e| {
                         log.err("error: invalid metadata in file {any} {s} {any}\n", .{
-                            resource.?.uid,
+                            resource.uid,
                             filename.items,
                             e,
                         });
@@ -472,7 +414,7 @@ pub const Resources = struct {
                     var buffer: [40:0]u8 = undefined;
                     std.debug.print("empty sentence keyword in {s}\n", .{encode(
                         u64,
-                        resource.?.uid,
+                        resource.uid,
                         &buffer,
                     )});
                 }
@@ -683,42 +625,62 @@ pub const Resources = struct {
 };
 
 /// Convert the extension of the file into an enum, and return both the
-/// extension and the name component of a filename.
+/// extension and the name component of a filename. i.e `/etc/jay~info.wav`
+/// returns `.{ .name = "jay~info" .extension = .wav}`
 fn get_file_type(file: []const u8) struct { name: []const u8, extension: Resource.Type } {
-    if (file.len < 5) {
+    const ext = read_extension(file);
+    if (ext.len == 0)
         return .{ .name = file, .extension = .unknown };
+
+    const full_name = file[0 .. file.len - ext.len - 1];
+
+    var cut = full_name.len;
+    while (cut > 0) {
+        if (full_name[cut - 1] == '/' or full_name[cut - 1] == '\\') break;
+        cut -= 1;
     }
-    const dot = file[file.len - 4];
-    if (dot != '.') {
-        return .{ .name = file, .extension = .unknown };
+    const name = full_name[cut..];
+
+    if (std.ascii.eqlIgnoreCase(ext, "png"))
+        return .{ .name = name, .extension = .png };
+    if (std.ascii.eqlIgnoreCase(ext, "svg"))
+        return .{ .name = name, .extension = .svg };
+    if (std.ascii.eqlIgnoreCase(ext, "jpg"))
+        return .{ .name = name, .extension = .jpg };
+    if (std.ascii.eqlIgnoreCase(ext, "ttf"))
+        return .{ .name = name, .extension = .ttf };
+    if (std.ascii.eqlIgnoreCase(ext, "otf"))
+        return .{ .name = name, .extension = .otf };
+    if (std.ascii.eqlIgnoreCase(ext, "csv"))
+        return .{ .name = name, .extension = .csv };
+    if (std.ascii.eqlIgnoreCase(ext, "jpx"))
+        return .{ .name = name, .extension = .jpx };
+    if (std.ascii.eqlIgnoreCase(ext, "bin"))
+        return .{ .name = name, .extension = .bin };
+    if (std.ascii.eqlIgnoreCase(ext, "xml"))
+        return .{ .name = name, .extension = .xml };
+
+    if (!std.ascii.startsWithIgnoreCase(name, "jay~"))
+        return .{ .name = name, .extension = .unknown };
+
+    if (std.ascii.eqlIgnoreCase(ext, "wav"))
+        return .{ .name = name, .extension = .wav };
+
+    return .{ .name = name, .extension = .unknown };
+}
+
+/// Return the file extension or null if no file extension exists. File
+/// extensions of over 6 charachters are considerd invalid and ignored.
+fn read_extension(path: []const u8) []const u8 {
+    var end = path.len;
+    while (end > 0) {
+        if (end + 6 < path.len)
+            break;
+        if (path[end - 1] == '.')
+            return path[end..];
+        end -= 1;
     }
-    const ext = file[(file.len - 3)..];
-    if (std.ascii.eqlIgnoreCase(ext, "png")) {
-        return .{ .name = file[0..(file.len - 4)], .extension = .png };
-    } else if (std.ascii.eqlIgnoreCase(ext, "svg")) {
-        return .{ .name = file[0..(file.len - 4)], .extension = .svg };
-    } else if (std.ascii.eqlIgnoreCase(ext, "jpg")) {
-        return .{ .name = file[0..(file.len - 4)], .extension = .jpg };
-    } else if (std.ascii.eqlIgnoreCase(ext, "ttf")) {
-        return .{ .name = file[0..(file.len - 4)], .extension = .ttf };
-    } else if (std.ascii.eqlIgnoreCase(ext, "otf")) {
-        return .{ .name = file[0..(file.len - 4)], .extension = .otf };
-    } else if (std.ascii.eqlIgnoreCase(ext, "csv")) {
-        return .{ .name = file[0..(file.len - 4)], .extension = .csv };
-    } else if (std.ascii.eqlIgnoreCase(ext, "jpx")) {
-        return .{ .name = file[0..(file.len - 4)], .extension = .jpx };
-    } else if (std.ascii.eqlIgnoreCase(ext, "bin")) {
-        return .{ .name = file[0..(file.len - 4)], .extension = .bin };
-    } else if (std.ascii.eqlIgnoreCase(ext, "xml")) {
-        return .{ .name = file[0..(file.len - 4)], .extension = .xml };
-    }
-    if (!std.ascii.startsWithIgnoreCase(file, "jay~")) {
-        return .{ .name = file, .extension = .unknown };
-    }
-    if (std.ascii.eqlIgnoreCase(ext, "wav")) {
-        return .{ .name = file[0..(file.len - 4)], .extension = .wav };
-    }
-    return .{ .name = file, .extension = .unknown };
+    return "";
 }
 
 /// Placeholder sort function for Resource record.
@@ -744,40 +706,6 @@ pub const BundleResource = struct {
     type: u8,
     names: []const []const u8,
 };
-
-// Wav files don't have metadata files, so the metadata is extracted
-// from the file name itself.
-fn get_wav_greek_name(allocator: Allocator, file: []const u8) error{OutOfMemory}!?[]const u8 {
-    var tilde: usize = file.len;
-    var end = file.len;
-    var i: usize = 0;
-
-    while (i < file.len) {
-        const c = file[i];
-        if (c == '~') {
-            if (tilde == file.len) {
-                // Remember first tilde
-                tilde = i + 1;
-            } else {
-                // Two tilde filenames are ignored.
-                return null;
-            }
-        }
-        if ((c == '.') or (c >= '0' and c <= '9')) {
-            end = i;
-        }
-        i += 1;
-    }
-    if (end == file.len) return null;
-    var name = file[0..end];
-    if (tilde != file.len) {
-        if (tilde == end) return null;
-        name = file[tilde..end];
-        if (!std.ascii.eqlIgnoreCase("jay", file[0 .. tilde - 1])) return null;
-    }
-
-    return try allocator.dupe(u8, name);
-}
 
 /// Return a slice of a sentence with trailing punctuation removed. This
 /// allows searches to find a non punctuated version of the sentence.
@@ -834,7 +762,7 @@ pub fn load_file_bytes(allocator: Allocator, filename: []const u8) ![]u8 {
         filename,
         .{ .mode = .read_only },
     ) catch |e| {
-        log.err("Repo file missing: {s}", .{filename});
+        log.debug("load_file_bytes failed to read file: {s}  {any}", .{ filename, e });
         return e;
     };
     defer file.close();
@@ -864,6 +792,14 @@ fn load_file_byte_slice(allocator: Allocator, filename: []const u8, offset: usiz
     const found = try file.readAll(buffer);
     std.debug.assert(size == found);
     return buffer;
+}
+
+test "read_extension" {
+    try expectEqualStrings("jpg", read_extension("fish.jpg"));
+    try expectEqualStrings("js", read_extension("fish.js"));
+    try expectEqualStrings("", read_extension("fish"));
+    try expectEqualStrings("js", read_extension("/var/info/fish.js"));
+    try expectEqualStrings("", read_extension("fish.jpgabcdefg"));
 }
 
 test "resource init" {
@@ -906,16 +842,21 @@ test "load_resource image" {
     var resources = try Resources.create(gpa);
     defer resources.destroy();
 
-    var file: std.ArrayListUnmanaged(u8) = .empty;
-    defer file.deinit(gpa);
-    try file.appendSlice(gpa, "./test/repo/GzeBWE.png");
-    const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .png, null, &resources.normalise);
-    defer resource.destroy(std.testing.allocator);
+    const file = "./test/repo/GzeBWE.png";
+    const info = get_file_type(file);
+    var resource: Resource = .empty;
+    try resource.load(std.testing.allocator, std.testing.allocator, &resources.normalise, file, info.name, info.extension);
+    defer resource.deinit(std.testing.allocator);
+
     try expectEqual(3989967536, resource.uid);
+    try expectEqualStrings(file, resource.filename.?);
+    try expectEqual(.png, resource.resource);
     try expectEqual(true, resource.visible);
     try expectEqualStrings("jay", resource.copyright.?);
-    try expectEqual(3, resource.sentences.items.len);
-    try expectEqualStrings("κρέα", resource.sentences.items[0]);
+    //for (resource.sentences.items) |s| std.log.err("sentence >> {s}", .{s});
+    try expectEqual(4, resource.sentences.items.len);
+    try expectEqualStrings("GzeBWE", resource.sentences.items[0]);
+    try expectEqualStrings("κρέα", resource.sentences.items[1]);
 }
 
 test "load_resource audio" {
@@ -923,15 +864,20 @@ test "load_resource audio" {
     var resources = try Resources.create(gpa);
     defer resources.destroy();
 
-    var file: std.ArrayList(u8) = .empty;
-    defer file.deinit(gpa);
-    try file.appendSlice(gpa, "./test/repo/jay~ἄρτος.wav");
-    const resource = try Resource.load(std.testing.allocator, std.testing.allocator, file.items, .wav, "ἄρτος", &resources.normalise);
-    defer resource.destroy(std.testing.allocator);
-    //try expectEqual(3989967536, resource.uid);
+    const file = "./test/repo/jay~ἄρτος.wav";
+    const info = get_file_type(file);
+    try expectEqualStrings("jay~ἄρτος", info.name);
+    try expectEqual(.wav, info.extension);
+
+    var resource: Resource = .empty;
+    try resource.load(std.testing.allocator, std.testing.allocator, &resources.normalise, file, info.name, info.extension);
+    defer resource.deinit(std.testing.allocator);
+
+    //try expect(0 != resource.uid);
     try expectEqual(true, resource.visible);
-    //try expectEqualStrings("jay", resource.copyright);
+    try expectEqual(.wav, resource.resource);
     try expectEqual(1, resource.sentences.items.len);
+    try expectEqualStrings(file, resource.filename.?);
     try expectEqualStrings("ἄρτος", resource.sentences.items[0]);
 }
 
@@ -1040,47 +986,14 @@ test "file_name_split" {
     const info = get_file_type("fish.jpg");
     try expectEqualStrings("fish", info.name);
     try expectEqual(.jpg, info.extension);
+
     const info2 = get_file_type("opens.xml");
     try expectEqualStrings("opens", info2.name);
     try expectEqual(.xml, info2.extension);
-}
 
-test "wav_filename" {
-    const allocator = std.testing.allocator;
-    var resources = try Resources.create(allocator);
-    defer resources.destroy();
-
-    {
-        const name = try get_wav_greek_name(allocator, "fish.wav");
-        defer allocator.free(name.?);
-        try expectEqualStrings("fish", name.?);
-    }
-    {
-        const name = try get_wav_greek_name(allocator, "ἀρτος.wav");
-        defer allocator.free(name.?);
-        try expectEqualStrings("ἀρτος", name.?);
-    }
-    {
-        const name = try get_wav_greek_name(allocator, "jay~ἀρτος.wav");
-        defer allocator.free(name.?);
-        try expectEqualStrings("ἀρτος", name.?);
-    }
-    {
-        const name = try get_wav_greek_name(allocator, "jay~ἀρτος~2.wav");
-        try expectEqual(null, name);
-    }
-    {
-        const name = try get_wav_greek_name(allocator, "jay2~ἀρτος~2.wav");
-        try expectEqual(null, name);
-    }
-    {
-        const name = try get_wav_greek_name(allocator, "other~ἀρτος~2.wav");
-        try expectEqual(null, name);
-    }
-    {
-        const name = try get_wav_greek_name(allocator, "other~ἀρτος.wav");
-        try expectEqual(null, name);
-    }
+    const info3 = get_file_type("/fish/hat/opens.xml");
+    try expectEqualStrings("opens", info3.name);
+    try expectEqual(.xml, info3.extension);
 }
 
 test "bundle" {
