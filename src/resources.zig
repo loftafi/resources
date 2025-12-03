@@ -765,7 +765,8 @@ pub fn load_file_bytes(allocator: Allocator, filename: []const u8) ![]u8 {
         filename,
         .{ .mode = .read_only },
     ) catch |e| {
-        log.debug("load_file_bytes failed to read file: {s}  {any}", .{ filename, e });
+        if (!std.ascii.endsWithIgnoreCase(filename, ".txt"))
+            log.debug("load_file_bytes failed to read file: {s}  {any}", .{ filename, e });
         return e;
     };
     defer file.close();
