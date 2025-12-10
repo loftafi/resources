@@ -668,8 +668,16 @@ fn get_file_type(file: []const u8) struct { name: []const u8, extension: Resourc
         return .{ .name = name, .extension = .bin };
     if (std.ascii.eqlIgnoreCase(ext, "xml"))
         return .{ .name = name, .extension = .xml };
+    if (std.ascii.eqlIgnoreCase(ext, "js"))
+        return .{ .name = name, .extension = .js };
+    if (std.ascii.eqlIgnoreCase(ext, "json"))
+        return .{ .name = name, .extension = .json };
+    if (std.ascii.eqlIgnoreCase(ext, "ogg"))
+        return .{ .name = name, .extension = .ogg };
+    if (std.ascii.eqlIgnoreCase(ext, "mp3"))
+        return .{ .name = name, .extension = .mp3 };
 
-    if (!std.ascii.startsWithIgnoreCase(name, "jay~"))
+    if (std.mem.indexOf(u8, name, "~") != null and !std.ascii.startsWithIgnoreCase(name, "jay~"))
         return .{ .name = name, .extension = .unknown };
 
     if (std.ascii.eqlIgnoreCase(ext, "wav"))
@@ -1031,7 +1039,7 @@ test "bundle" {
         //while (i.next()) |r| {
         //    std.log.err("value >> {s}", .{r.value_ptr.*.keyword});
         //}
-        try expectEqual(222, resources.by_filename.index.count());
+        try expectEqual(231, resources.by_filename.index.count());
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
