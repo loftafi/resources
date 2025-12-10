@@ -199,8 +199,11 @@ pub const Resource = struct {
         csv = 7,
         jpx = 8,
         xml = 9,
-        //json = 10,
+        json = 10,
         bin = 11,
+        ogg = 12,
+        mp3 = 13,
+        js = 14,
 
         pub fn extension(self: Type) [:0]const u8 {
             return switch (self) {
@@ -213,8 +216,11 @@ pub const Resource = struct {
                 .csv => "csv",
                 .jpx => "jpx",
                 .xml => "xml",
-                //.json => "json",
+                .json => "json",
                 .bin => "bin",
+                .ogg => "ogg",
+                .mp3 => "mp3",
+                .js => "js",
                 else => "unknown",
             };
         }
@@ -230,8 +236,11 @@ pub const Resource = struct {
                 .csv => ".csv",
                 .jpx => ".jpx",
                 .xml => ".xml",
-                //.json => ".json",
+                .json => ".json",
                 .bin => ".bin",
+                .ogg => ".ogg",
+                .mp3 => ".mp3",
+                .js => ".js",
                 else => ".unknown",
             };
         }

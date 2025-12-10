@@ -43,13 +43,16 @@ pub const Resources = struct {
         csv,
         jpx,
         xml,
-        //json,
+        json,
         bin,
+        ogg,
+        mp3,
+        js,
 
         pub fn matches(self: SearchCategory, value: Resource.Type) bool {
             return switch (self) {
                 .any => true,
-                .audio => value == .wav,
+                .audio => value == .wav or value == .ogg or value == .mp3,
                 .image => value == .png or value == .jpg,
                 .font => value == .ttf or value == .otf,
                 .wav => value == .wav,
@@ -61,8 +64,11 @@ pub const Resources = struct {
                 .jpx => value == .jpx,
                 .svg => value == .svg,
                 .xml => value == .xml,
+                .json => value == .json,
                 .bin => value == .bin,
-                //.json => value == .json,
+                .ogg => value == .ogg,
+                .mp3 => value == .mp3,
+                .js => value == .js,
             };
         }
     };
