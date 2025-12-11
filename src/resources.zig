@@ -21,7 +21,7 @@ pub const Resources = struct {
     arena: *std.heap.ArenaAllocator,
     arena_allocator: Allocator,
     parent_allocator: Allocator,
-    used_resource_list: ?ArrayListUnmanaged(*Resource),
+    used_resource_list: ?ArrayListUnmanaged(*const Resource),
 
     folder: []const u8 = "",
     bundle_file: []const u8 = "",
@@ -73,18 +73,7 @@ pub const Resources = struct {
         }
     };
 
-    pub const Error = error{
-        FailedReadingRepo,
-        ReadRepoFileFailed,
-        ReadMetadataFailed,
-        InvalidResourceUID,
-        MetadataMissing,
-        FilenameTooLong,
-        ResourceHasNoFilename,
-        QueryTooLong,
-        QueryEmpty,
-        QueryEncodingError,
-    };
+    pub const Error = error{ FailedReadingRepo, ReadRepoFileFailed, ReadMetadataFailed, InvalidResourceUID, MetadataMissing, FilenameTooLong, ResourceHasNoFilename, QueryTooLong, QueryEmpty, QueryEncodingError, InvalidBundleFile, BundleTooShortToExtractFile, UnknownImageOrientation };
 
     pub fn create(parent_allocator: Allocator) error{OutOfMemory}!*Resources {
         var arena = try parent_allocator.create(std.heap.ArenaAllocator);
@@ -143,7 +132,7 @@ pub const Resources = struct {
 
     // Load the table of contents of a file resource bundle into memory
     // so that files inside can be searched/loaded.
-    pub fn load_bundle(self: *Resources, bundle_filename: []const u8) !void {
+    pub fn load_bundle(self: *Resources, bundle_filename: []const u8) (Allocator.Error || std.fs.File.OpenError || Error || std.fs.File.ReadError || std.io.Reader.Error)!void {
         var buffer: [300:0]u8 = undefined;
         var rbuffer: [4196:0]u8 = undefined;
         const e = std.builtin.Endian.little;
@@ -179,18 +168,27 @@ pub const Resources = struct {
 
             try self.by_uid.put(r.uid, r);
             for (r.sentences.items) |sentence| {
-                try self.by_filename.add(self.arena_allocator, sentence, r);
+                self.by_filename.add(self.arena_allocator, sentence, r) catch |f| {
+                    err("bundle contains invalid filename. {any}", .{f});
+                    return error.InvalidBundleFile;
+                };
             }
 
             var unique = UniqueWords.init(self.arena_allocator);
             defer unique.deinit();
-            try unique.addArray(&r.sentences.items);
+            unique.addArray(&r.sentences.items) catch |f| {
+                err("bundle contains invalid filename. {any}", .{f});
+                return error.InvalidBundleFile;
+            };
             var it = unique.words.iterator();
             while (it.next()) |word| {
                 if (word.key_ptr.*.len > 0) {
-                    try self.by_word.add(self.arena_allocator, word.key_ptr.*, r);
+                    self.by_word.add(self.arena_allocator, word.key_ptr.*, r) catch |f| {
+                        err("bundle contains invalid filename. {any}", .{f});
+                        return error.InvalidBundleFile;
+                    };
                 } else {
-                    std.debug.print("empty sentence keyword in {s}\n", .{encode(u64, r.uid, buffer[0..40 :0])});
+                    warn("empty sentence keyword in {s}\n", .{encode(u64, r.uid, buffer[0..40 :0])});
                 }
             }
         }
@@ -200,7 +198,7 @@ pub const Resources = struct {
 
     // Save the `manifest` list of resources into a single data data file
     // with a table of contents.
-    pub fn save_bundle(self: *Resources, filename: []const u8, manifest: []*Resource) !void {
+    pub fn save_bundle(self: *Resources, filename: []const u8, manifest: []*const Resource, options: Options) (Allocator.Error || Resources.Error || std.fs.File.OpenError || std.fs.File.WriteError || std.Io.Writer.Error || std.Io.Reader.Error || std.fs.File.SeekError || std.fs.File.ReadError)!void {
         const version = 1;
         var header: ArrayListUnmanaged(u8) = .empty;
         defer header.deinit(self.parent_allocator);
@@ -232,8 +230,20 @@ pub const Resources = struct {
                 return e;
             };
             defer file.close();
+
             const stat = try file.stat();
-            if (stat.size > 0xffffffff) {
+            const size = stat.size;
+
+            if (options.audio == .ogg) {
+                const processed = generate_ogg_audio(self.parent_allocator, resource, self) catch |f| {
+                    log.err("generate_ogg_audio_failed. {any}  {s}", .{ f, resource.filename.? });
+                    continue;
+                };
+                defer self.parent_allocator.free(processed);
+                debug("{s} wav {d} to {d} bytes", .{ filename, stat.size, processed.len });
+            }
+
+            if (size > 0xffffffff) {
                 log.err("File too large to bundle: {s}", .{resource.filename.?});
             }
             var names = resource.sentences.items;
@@ -250,7 +260,7 @@ pub const Resources = struct {
             try header_items.append(self.parent_allocator, .{
                 .type = @intFromEnum(resource.resource),
                 .uid = resource.uid,
-                .size = @as(u32, @intCast(stat.size)),
+                .size = @as(u32, @intCast(size)),
                 .names = names,
             });
             file_index += 1 + 8 + 4 + 1 + 8;
@@ -312,9 +322,8 @@ pub const Resources = struct {
 
         var i = dir.iterate();
         while (i.next() catch return error.ReadRepoFileFailed) |file| {
-            if (file.kind != .file) {
-                continue;
-            }
+            if (file.kind != .file) continue;
+
             const file_info = get_file_type(file.name);
 
             if (file_info.extension == .unknown) {
@@ -606,9 +615,9 @@ pub const Resources = struct {
     // from a resource bundle.
     pub fn read_data(
         self: *Resources,
-        resource: *Resource,
+        resource: *const Resource,
         allocator: Allocator,
-    ) ![]const u8 {
+    ) (Resources.Error || Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.SeekError || std.Io.Reader.Error)![]const u8 {
         if (self.used_resource_list) |*manifest| {
             try manifest.append(self.arena_allocator, resource);
         }
@@ -617,7 +626,6 @@ pub const Resources = struct {
             const data = load_file_bytes(allocator, filename) catch |e| {
                 return e;
             };
-            resource.size = data.len;
             return data;
         }
         if (resource.bundle_offset) |bundle_offset| {
@@ -760,7 +768,7 @@ pub fn sentence_trim(sentence: []const u8) ?[]const u8 {
     return trimmed;
 }
 
-pub fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) !void {
+pub fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) (Allocator.Error || std.Io.Writer.Error || std.fs.File.WriteError || std.fs.File.OpenError || std.fs.Dir.RenameError)!void {
     const tmp_filename = try std.fmt.allocPrint(gpa, "{s}.{d}", .{ filename, std.time.milliTimestamp() });
     const file = std.fs.cwd().createFile(tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
         log.err(
@@ -774,7 +782,7 @@ pub fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) 
     try std.fs.cwd().rename(tmp_filename, filename);
 }
 
-pub fn load_file_bytes(allocator: Allocator, filename: []const u8) ![]u8 {
+pub fn load_file_bytes(allocator: Allocator, filename: []const u8) (Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError)![]u8 {
     const file = std.fs.cwd().openFile(
         filename,
         .{ .mode = .read_only },
@@ -788,7 +796,7 @@ pub fn load_file_bytes(allocator: Allocator, filename: []const u8) ![]u8 {
     return try file.readToEndAlloc(allocator, stat.size);
 }
 
-fn load_file_byte_slice(allocator: Allocator, filename: []const u8, offset: usize, size: usize) ![]u8 {
+fn load_file_byte_slice(allocator: Allocator, filename: []const u8, offset: usize, size: usize) (Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.StatError || std.fs.File.SeekError || Resources.Error)![]u8 {
     const file = std.fs.cwd().openFile(
         filename,
         .{ .mode = .read_only },
@@ -1058,7 +1066,7 @@ test "bundle" {
         data2 = try resources.read_data(results.items[1], gpa);
         try expectEqual(2, resources.used_resource_list.?.items.len);
 
-        try resources.save_bundle(TEST_BUNDLE_FILENAME, resources.used_resource_list.?.items);
+        try resources.save_bundle(TEST_BUNDLE_FILENAME, resources.used_resource_list.?.items, .{});
     }
     defer std.testing.allocator.free(data1);
     defer std.testing.allocator.free(data2);
@@ -1098,6 +1106,24 @@ test "bundle" {
     try expectEqualStrings(data2, data2b);
 }
 
+pub const Options = struct {
+    audio: AudioOption = .original,
+    image: ImageOption = .original,
+
+    max_image_width: usize = 1000000,
+    max_image_height: usize = 1000000,
+
+    pub const ImageOption = enum {
+        original,
+        jpg,
+    };
+
+    pub const AudioOption = enum {
+        original,
+        ogg,
+    };
+};
+
 const builtin = @import("builtin");
 const std = @import("std");
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -1126,6 +1152,8 @@ const BoundedArray = @import("praxis").BoundedArray;
 const SearchIndex = @import("praxis").SearchIndex;
 const normalise_word = @import("praxis").normalise_word;
 const max_word_size = @import("praxis").MAX_WORD_SIZE;
+
+const generate_ogg_audio = @import("export_audio.zig").generate_ogg_audio;
 
 const encode = @import("base62.zig").encode;
 const decode = @import("base62.zig").decode;

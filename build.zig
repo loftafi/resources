@@ -54,6 +54,19 @@ pub fn build(b: *std.Build) void {
     tests.root_module.addImport("zstbi", zstbi_module);
     tests.root_module.addImport("Normalize", zg.module("Normalize"));
 
+    tests.root_module.addAnonymousImport("wav_32", .{
+        .root_source_file = b.path("./test/test_32bit.wav"),
+    });
+    tests.root_module.addAnonymousImport("wav_16", .{
+        .root_source_file = b.path("./test/test_16bit.wav"),
+    });
+    tests.root_module.addAnonymousImport("wav_32_stereo", .{
+        .root_source_file = b.path("./test/test_32bit_stereo.wav"),
+    });
+    tests.root_module.addAnonymousImport("wav_fade_edges", .{
+        .root_source_file = b.path("./test/test_wav_fade_edges.wav"),
+    });
+
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);

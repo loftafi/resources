@@ -10,9 +10,8 @@ pub const Setting = struct {
 /// Read a setting from a `Parser`. Returns null if the data contains no
 /// more bytes, or bytes exist, but the bytes don't represent a correctly
 /// formatted setting line could not be read.
-pub fn next(parser: *Parser) !?Setting {
+pub fn next(parser: *Parser) error{InvalidUtf8}!?Setting {
     _ = parser.skip_whitespace_and_lines();
-
     const c = try parser.next_unicode();
     if (c == 0) return null;
 

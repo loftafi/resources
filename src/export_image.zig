@@ -195,7 +195,7 @@ pub fn fit(size: Size, preferred: Size) ?Size {
     return result;
 }
 
-fn get_orientation(_: []const u8) !u32 {
+fn get_orientation(_: []const u8) Resources.Error!u32 {
     //var file = std.fs.file.open(file_data) catch |e| {
     //    err("Failed opening file {s} {any}", .{ file_data, e });
     //    return e;
@@ -211,7 +211,7 @@ fn get_orientation(_: []const u8) !u32 {
     //        return value;
     //    }
     //}
-    return error.UnknownOrientation;
+    return error.UnknownImageOrientation;
 }
 
 test "size_difference" {
