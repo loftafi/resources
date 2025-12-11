@@ -657,41 +657,16 @@ fn get_file_type(file: []const u8) struct { name: []const u8, extension: Resourc
         cut -= 1;
     }
     const name = full_name[cut..];
+    var etype = Resource.Type.parse(ext);
 
-    if (std.ascii.eqlIgnoreCase(ext, "png"))
-        return .{ .name = name, .extension = .png };
-    if (std.ascii.eqlIgnoreCase(ext, "svg"))
-        return .{ .name = name, .extension = .svg };
-    if (std.ascii.eqlIgnoreCase(ext, "jpg"))
-        return .{ .name = name, .extension = .jpg };
-    if (std.ascii.eqlIgnoreCase(ext, "ttf"))
-        return .{ .name = name, .extension = .ttf };
-    if (std.ascii.eqlIgnoreCase(ext, "otf"))
-        return .{ .name = name, .extension = .otf };
-    if (std.ascii.eqlIgnoreCase(ext, "csv"))
-        return .{ .name = name, .extension = .csv };
-    if (std.ascii.eqlIgnoreCase(ext, "jpx"))
-        return .{ .name = name, .extension = .jpx };
-    if (std.ascii.eqlIgnoreCase(ext, "bin"))
-        return .{ .name = name, .extension = .bin };
-    if (std.ascii.eqlIgnoreCase(ext, "xml"))
-        return .{ .name = name, .extension = .xml };
-    if (std.ascii.eqlIgnoreCase(ext, "js"))
-        return .{ .name = name, .extension = .js };
-    if (std.ascii.eqlIgnoreCase(ext, "json"))
-        return .{ .name = name, .extension = .json };
-    if (std.ascii.eqlIgnoreCase(ext, "ogg"))
-        return .{ .name = name, .extension = .ogg };
-    if (std.ascii.eqlIgnoreCase(ext, "mp3"))
-        return .{ .name = name, .extension = .mp3 };
+    if (etype == .wav and
+        !std.ascii.startsWithIgnoreCase(name, "jay~") and
+        std.mem.indexOf(u8, name, "~") != null)
+    {
+        etype = .unknown;
+    }
 
-    if (std.mem.indexOf(u8, name, "~") != null and !std.ascii.startsWithIgnoreCase(name, "jay~"))
-        return .{ .name = name, .extension = .unknown };
-
-    if (std.ascii.eqlIgnoreCase(ext, "wav"))
-        return .{ .name = name, .extension = .wav };
-
-    return .{ .name = name, .extension = .unknown };
+    return .{ .name = name, .extension = etype };
 }
 
 /// Return the file extension or null if no file extension exists. File
@@ -1109,9 +1084,7 @@ test "bundle" {
 pub const Options = struct {
     audio: AudioOption = .original,
     image: ImageOption = .original,
-
-    max_image_width: usize = 1000000,
-    max_image_height: usize = 1000000,
+    max_image_size: Size = .{ .width = 10000, .height = 10000 },
 
     pub const ImageOption = enum {
         original,
@@ -1154,6 +1127,7 @@ const normalise_word = @import("praxis").normalise_word;
 const max_word_size = @import("praxis").MAX_WORD_SIZE;
 
 const generate_ogg_audio = @import("export_audio.zig").generate_ogg_audio;
+const Size = @import("export_image.zig").Size;
 
 const encode = @import("base62.zig").encode;
 const decode = @import("base62.zig").decode;
