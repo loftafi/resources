@@ -143,12 +143,12 @@ pub const Resources = struct {
         const b1 = try rb.interface.takeInt(u8, e);
         const b2 = try rb.interface.takeInt(u8, e);
         const b3 = try rb.interface.takeInt(u8, e);
-        if (b1 + 9 != b2) {
+        if (b1 + 9 != b2)
             return error.InvalidBundleFile;
-        }
-        if (b1 + 1 != b3) {
+
+        if (b1 + 1 != b3)
             return error.InvalidBundleFile;
-        }
+
         const entries = try rb.interface.takeInt(u24, e);
         for (0..entries) |_| {
             var r = try Resource.create(self.arena_allocator);
@@ -198,7 +198,7 @@ pub const Resources = struct {
 
     // Save the `manifest` list of resources into a single data data file
     // with a table of contents.
-    pub fn save_bundle(self: *Resources, filename: []const u8, manifest: []*const Resource, options: Options) (Allocator.Error || Resources.Error || std.fs.File.OpenError || std.fs.File.WriteError || std.Io.Writer.Error || std.Io.Reader.Error || std.fs.File.SeekError || std.fs.File.ReadError)!void {
+    pub fn save_bundle(self: *Resources, filename: []const u8, manifest: []*const Resource, options: Options, cache: []const u8) (Allocator.Error || Resources.Error || std.fs.File.OpenError || std.fs.File.WriteError || std.Io.Writer.Error || std.Io.Reader.Error || std.fs.File.SeekError || std.fs.File.ReadError || std.fs.Dir.OpenError || std.fs.Dir.RenameError)!void {
         const version = 1;
         var header: ArrayListUnmanaged(u8) = .empty;
         defer header.deinit(self.parent_allocator);
@@ -210,8 +210,13 @@ pub const Resources = struct {
         try append_u8(&header, b1 + 9, self.parent_allocator);
         try append_u8(&header, b1 + version, self.parent_allocator);
 
+        const cache_dir = std.fs.openDirAbsolute(cache, .{ .iterate = false }) catch |f| {
+            err("Failed to access cache folder: {s} {any}", .{ cache, f });
+            return f;
+        };
+
         const output = std.fs.cwd().createFile(filename, .{ .truncate = true }) catch |e| {
-            log.err("Repo file missing: {s}", .{filename});
+            err("Failed to create repo bundle file: {s} {any}", .{ filename, e });
             return e;
         };
 
@@ -222,11 +227,11 @@ pub const Resources = struct {
         // Build the table of contents so we can estimate the size of it.
         for (manifest) |resource| {
             if (resource.filename == null) {
-                log.err("Resource object missing filename: {d}. Resource probably lives in a bundle.", .{resource.uid});
+                err("Resource object missing filename: {d}. Resource probably lives in a bundle.", .{resource.uid});
                 continue;
             }
             const file = std.fs.cwd().openFile(resource.filename.?, .{ .mode = .read_only }) catch |e| {
-                log.err("Repo file missing: {s}", .{resource.filename.?});
+                err("Repo file missing: {s}", .{resource.filename.?});
                 return e;
             };
             defer file.close();
@@ -236,36 +241,39 @@ pub const Resources = struct {
 
             if (resource.resource == .wav and options.audio == .ogg) {
                 const processed = generate_ogg_audio(self.parent_allocator, resource, self) catch |f| {
-                    log.err("generate_ogg_audio_failed. {any}  {s}", .{ f, resource.filename.? });
+                    err("generate_ogg_audio_failed. {any}  {s}", .{ f, resource.filename.? });
                     continue;
                 };
                 defer self.parent_allocator.free(processed);
                 debug("{s} wav {d} to {d} bytes", .{ filename, stat.size, processed.len });
+                try write_folder_file_bytes(self.parent_allocator, cache_dir, filename, processed);
             }
 
             if ((resource.resource == .jpg or resource.resource == .png) and options.image == .jpg) {
                 const processed = exportImage(self.parent_allocator, resource, self, .{ .width = 800, .height = 800 }, .fill, .jpg) catch |f| {
-                    log.err("exportImage. {any}  {s}", .{ f, resource.filename.? });
+                    err("exportImage. {any}  {s}", .{ f, resource.filename.? });
                     continue;
                 };
                 defer self.parent_allocator.free(processed);
                 debug("{s} {t} {d} to {d} bytes", .{ filename, resource.resource, stat.size, processed.len });
+                try write_folder_file_bytes(self.parent_allocator, cache_dir, filename, processed);
             }
 
-            if (size > 0xffffffff) {
-                log.err("File too large to bundle: {s}", .{resource.filename.?});
-            }
+            if (size > 0xffffffff)
+                err("File too large to bundle: {s}", .{resource.filename.?});
+
             var names = resource.sentences.items;
-            if (names.len > 254) {
+            if (names.len > 254)
                 names = resource.sentences.items[0..254];
-            }
+
             if (names.len == 0) {
-                log.err("Resource has no sentences: {s} {any}", .{
+                err("Resource has no sentences: {s} {any}", .{
                     resource.filename.?,
                     @tagName(resource.resource),
                 });
                 continue;
             }
+
             try header_items.append(self.parent_allocator, .{
                 .type = @intFromEnum(resource.resource),
                 .uid = resource.uid,
@@ -409,7 +417,7 @@ pub const Resources = struct {
                         sentence,
                         resource,
                     ) catch |e| {
-                        log.err("error: invalid metadata in file {any} {s} {any}\n", .{
+                        err("error: invalid metadata in file {any} {s} {any}\n", .{
                             resource.uid,
                             filename.items,
                             e,
@@ -430,7 +438,7 @@ pub const Resources = struct {
                         word.key_ptr.*,
                         resource,
                     ) catch |e| {
-                        log.err("error: invalid metadata in file {any} {s} {any}\n", .{
+                        err("error: invalid metadata in file {any} {s} {any}\n", .{
                             resource.uid,
                             filename.items,
                             e,
@@ -755,7 +763,7 @@ pub fn sentence_trim(sentence: []const u8) ?[]const u8 {
 pub fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) (Allocator.Error || std.Io.Writer.Error || std.fs.File.WriteError || std.fs.File.OpenError || std.fs.Dir.RenameError)!void {
     const tmp_filename = try std.fmt.allocPrint(gpa, "{s}.{d}", .{ filename, std.time.milliTimestamp() });
     const file = std.fs.cwd().createFile(tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
-        log.err(
+        err(
             "Failed to open file for writing: {s}. {any}",
             .{ filename, e },
         );
@@ -764,6 +772,20 @@ pub fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) 
     defer file.close();
     try file.writeAll(data);
     try std.fs.cwd().rename(tmp_filename, filename);
+}
+
+pub fn write_folder_file_bytes(gpa: Allocator, folder: std.fs.Dir, filename: []const u8, data: []const u8) (Allocator.Error || std.Io.Writer.Error || std.fs.File.WriteError || std.fs.File.OpenError || std.fs.Dir.RenameError)!void {
+    const tmp_filename = try std.fmt.allocPrint(gpa, "{s}.{d}", .{ filename, std.time.milliTimestamp() });
+    const file = folder.createFile(tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
+        err(
+            "Failed to open file for writing: {s}. {any}",
+            .{ filename, e },
+        );
+        return e;
+    };
+    defer file.close();
+    try file.writeAll(data);
+    try folder.rename(tmp_filename, filename);
 }
 
 pub fn load_file_bytes(allocator: Allocator, filename: []const u8) (Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError)![]u8 {
@@ -785,7 +807,7 @@ fn load_file_byte_slice(allocator: Allocator, filename: []const u8, offset: usiz
         filename,
         .{ .mode = .read_only },
     ) catch |e| {
-        log.err("Repo file missing: {s}", .{filename});
+        err("Repo file missing: {s}", .{filename});
         return e;
     };
     defer file.close();
@@ -794,7 +816,7 @@ fn load_file_byte_slice(allocator: Allocator, filename: []const u8, offset: usiz
         return error.BundleTooShortToExtractFile;
     }
     file.seekTo(offset) catch |e| {
-        log.err("Seek file failed: {s} {d} {d} Error: {any}", .{ filename, offset, size, e });
+        err("Seek file failed: {s} {d} {d} Error: {any}", .{ filename, offset, size, e });
         return e;
     };
     const buffer = try allocator.alloc(u8, size);
@@ -1029,7 +1051,7 @@ test "bundle" {
 
         //var i = resources.by_filename.index.iterator();
         //while (i.next()) |r| {
-        //    std.log.err("value >> {s}", .{r.value_ptr.*.keyword});
+        //    err("value >> {s}", .{r.value_ptr.*.keyword});
         //}
         try expectEqual(231, resources.by_filename.index.count());
 
@@ -1039,7 +1061,7 @@ test "bundle" {
         try resources.lookup("1122", .any, true, &results, gpa);
         //for (results.items) |r|
         //    for (r.sentences.items) |s|
-        //        std.log.err("sentence >> {s}", .{s});
+        //        err("sentence >> {s}", .{s});
         try expectEqual(1, results.items.len);
         try resources.lookup("2233", .any, true, &results, gpa);
         try expectEqual(2, results.items.len);
@@ -1050,7 +1072,7 @@ test "bundle" {
         data2 = try resources.read_data(results.items[1], gpa);
         try expectEqual(2, resources.used_resource_list.?.items.len);
 
-        try resources.save_bundle(TEST_BUNDLE_FILENAME, resources.used_resource_list.?.items, .{});
+        try resources.save_bundle(TEST_BUNDLE_FILENAME, resources.used_resource_list.?.items, .{}, "/tmp/");
     }
     defer std.testing.allocator.free(data1);
     defer std.testing.allocator.free(data2);

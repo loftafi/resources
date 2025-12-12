@@ -1,6 +1,6 @@
 .{
     .name = .resources,
-    .version = "0.6.3",
+    .version = "0.6.4",
     .fingerprint = 0xef66ebae23b04127, // Changing this has security and trust implications.
     .minimum_zig_version = "0.15.2",
 
