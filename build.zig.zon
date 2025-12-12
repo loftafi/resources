@@ -10,8 +10,8 @@
             .hash = "praxis-0.4.4-FPf2NUbKBgC9hEdrSMleAWVOTSaI9dQ2xmqf1ZdWbJTe",
         },
         .zstbi = .{
-            .url = "git+https://github.com/zig-gamedev/zstbi#2c4b3100ccb7aed90ecc9439030899764e2a8d47",
-            .hash = "zstbi-0.11.0-dev-L0Ea_yaWBwAHwFoCuyjkFyaiSsbjt4UOrkntR0c_nmzz",
+            .url = "git+https://github.com/zig-gamedev/zstbi.git#664305dd52640be15cbebd7cd73d1199679933e1",
+            .hash = "zstbi-0.11.0-dev-L0Ea_2yVBwA4uh-tHfgdhZcQaWRoZVYlNGs4Dl_WTeuR",
         },
         .zigimg = .{
             .url = "git+https://github.com/zigimg/zigimg.git#f5783e87627cbd9e0b45fad112e9f73503914f36",

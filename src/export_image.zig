@@ -10,43 +10,43 @@ pub const ScaleMode = enum {
 };
 
 pub const Size = struct {
-    width: f64,
-    height: f64,
+    width: u32,
+    height: u32,
 };
 
+//pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: *Resources)
 /// export an image resource into a specific `dst` folder bounded to a specific
 /// width and height.
 pub fn exportImage(
     allocator: Allocator,
+    resource: *const Resource,
     resources: *Resources,
-    resource: *Resource,
-    to_dir: std.fs.Dir,
-    to_name: []const u8,
     bounded: Size,
     mode: ScaleMode,
-) !void {
+    image_type: Resource.Type,
+) (Allocator.Error || Resources.Error || error{ ExportsJpgOrPngOnly, ImageConversionError } || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.SeekError || std.Io.Reader.Error)![]const u8 {
     zstbi.init(allocator);
     defer zstbi.deinit();
+
+    if (image_type != .png and image_type != .jpg)
+        return error.ExportsJpgOrPngOnly;
 
     // Read the raw image data
     const data = try resources.read_data(resource, allocator);
     defer allocator.free(data);
-    var img = try zstbi.Image.loadFromMemory(data, 0);
+    var img = Image.loadFromMemory(data, 0) catch |f| {
+        err("Image load failed. {any}", .{f});
+        return error.ImageConversionError;
+    };
     defer img.deinit();
 
-    const ext = std.fs.path.extension(to_name);
-    if (!std.ascii.eqlIgnoreCase(ext, ".jpg") and !std.ascii.eqlIgnoreCase(ext, ".png")) {
-        return error.ExportsJpgOrPngOnly;
-    }
-
-    if (img.width < 300 or img.height < 300) {
+    if (img.width < 300 or img.height < 300)
         warn("WARNING: Exporting very small image. {d}x{d}", .{
             img.width,
             img.height,
         });
-    }
 
-    info("Exporting image {s} as {s}", .{ resource.filename.?, to_name });
+    debug("Exporting image {d} as {t}", .{ resource.uid, image_type });
 
     //println!("Reading image: {:?} colour type is: {:?}", src, img.color());
 
@@ -74,7 +74,7 @@ pub fn exportImage(
     //}
 
     // Expand or shrink image image if needed
-    var size = Size{ .width = @floatFromInt(img.width), .height = @floatFromInt(img.height) };
+    var size = Size{ .width = img.width, .height = img.height };
     const target = switch (mode) {
         .fit => fit(size, bounded),
         .fill => fill(size, bounded),
@@ -82,63 +82,83 @@ pub fn exportImage(
     };
     if (target) |new_size| {
         const new_img = img.resize(
-            @intFromFloat(new_size.width),
-            @intFromFloat(new_size.height),
+            new_size.width,
+            new_size.height,
         );
         img.deinit();
         img = new_img;
-        size = Size{ .width = @floatFromInt(img.width), .height = @floatFromInt(img.height) };
+        size = Size{ .width = img.width, .height = img.height };
     }
-
-    const to_dir_name = try to_dir.realpathAlloc(allocator, ".");
-    defer allocator.free(to_dir_name);
-    const joined = try std.fs.path.join(allocator, &[_][]const u8{ to_dir_name, to_name });
-    defer allocator.free(joined);
-    const to_filename_z = try std.fmt.allocPrintSentinel(allocator, "{s}", .{joined}, 0);
-    defer allocator.free(to_filename_z);
 
     if (mode == .cover) {
-        // Additionally, if cover mode requested, also crop the image if needed.
-        var x: f64 = 0;
-        var y: f64 = 0;
-        if (size.width > bounded.width) {
-            x += @as(f64, @floatCast((size.width - bounded.width))) / 2.0;
+        if (false) {
+            // Additionally, if cover mode requested, also crop the image if needed.
+            var x: f64 = 0;
+            var y: f64 = 0;
+            if (size.width > bounded.width) {
+                x += @as(f64, @floatCast((size.width - bounded.width))) / 2.0;
+            }
+            if (size.height > bounded.height) {
+                y += @as(f64, @floatCast((size.height - bounded.height))) / 2.0;
+            }
+            const temp_filename = "/tmp/temp.out.png";
+            try Image.writeToFile(img, temp_filename, .{ .png = .{} });
+            var temp_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE * 10]u8 = undefined;
+            err("zigimg load file from {s}", .{temp_filename});
+            var image = try zigimg.Image.fromFilePath(allocator, temp_filename, temp_buffer[0..]);
+            defer image.deinit(allocator);
+            var cropped = try image.crop(allocator, .{
+                .x = @intFromFloat(x),
+                .y = @intFromFloat(y),
+                .width = @intFromFloat(bounded.width),
+                .height = @intFromFloat(bounded.height),
+            });
+            defer cropped.deinit(allocator);
+            try cropped.writeToFilePath(allocator, "testfile.ext", &temp_buffer, .{ .png = .{} });
         }
-        if (size.height > bounded.height) {
-            y += @as(f64, @floatCast((size.height - bounded.height))) / 2.0;
-        }
-        const format: zstbi.ImageWriteFormat = .png;
-        const temp_filename = "/tmp/temp.out.png";
-        try zstbi.Image.writeToFile(img, temp_filename, format);
-        var temp_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE * 10]u8 = undefined;
-        err("zigimg load file from {s}", .{temp_filename});
-        var image = try zigimg.Image.fromFilePath(allocator, temp_filename, temp_buffer[0..]);
-        defer image.deinit(allocator);
-        var cropped = try image.crop(allocator, .{
-            .x = @intFromFloat(x),
-            .y = @intFromFloat(y),
-            .width = @intFromFloat(bounded.width),
-            .height = @intFromFloat(bounded.height),
-        });
-        defer cropped.deinit(allocator);
-        try cropped.writeToFilePath(allocator, to_filename_z, &temp_buffer, .{ .png = .{} });
+        unreachable;
     } else {
-        // No crop needed, just save the file
-
-        //let encoder = PngEncoder::new_with_quality(&mut out, CompressionType::Best, FilterType::NoFilter);
-        //encoder.encode(&imbuf.into_raw(), target_width, target_height, ColorType::Rgba8);
-        if (std.ascii.eqlIgnoreCase(ext, ".jpg")) {
-            const format: zstbi.ImageWriteFormat = .{ .jpg = .{ .quality = 75 } };
-            try zstbi.Image.writeToFile(img, to_filename_z, format);
-        } else if (std.ascii.eqlIgnoreCase(ext, ".png")) {
-            const format: zstbi.ImageWriteFormat = .png;
-            try zstbi.Image.writeToFile(img, to_filename_z, format);
-        } else {
-            unreachable; // only jpg and jpng should reach this code block.
+        switch (image_type) {
+            .jpg => {
+                var buffer: Buffer = .{ .allocator = allocator };
+                Image.writeToFn(img, write_fn, &buffer, .{ .jpg = .{ .quality = 75 } }) catch |f| {
+                    err("Image write failed. {any}", .{f});
+                    return error.ImageConversionError;
+                };
+                if (buffer.failed) return error.ImageConversionError;
+                return buffer.data.toOwnedSlice(allocator);
+            },
+            .png => {
+                var buffer: Buffer = .{ .allocator = allocator };
+                Image.writeToFn(img, write_fn, &buffer, .png) catch |f| {
+                    err("Image write failed. {any}", .{f});
+                    return error.ImageConversionError;
+                };
+                if (buffer.failed) return error.ImageConversionError;
+                return buffer.data.toOwnedSlice(allocator);
+            },
+            else => unreachable, // only jpg and png should reach this point.
         }
+        return error.ImageConversionError;
     }
 
-    return;
+    return error.ImageConversionError;
+}
+
+const Buffer = struct {
+    allocator: Allocator,
+    data: std.ArrayListUnmanaged(u8) = .empty,
+    failed: bool = false,
+};
+
+fn write_fn(context: ?*anyopaque, data: ?*anyopaque, size: c_int) callconv(.c) void {
+    var buffer: *Buffer = @ptrCast(@alignCast(context));
+    var block: [*]const u8 = @ptrCast(data);
+    if (buffer.failed) return;
+    buffer.data.appendSlice(buffer.allocator, block[0..@as(usize, @intCast(size))]) catch |f| {
+        err("Failed appending image data. {any}", .{f});
+        buffer.failed = true;
+    };
 }
 
 inline fn size_difference(x: f64, y: f64) f64 {
@@ -150,14 +170,14 @@ inline fn size_difference(x: f64, y: f64) f64 {
 
 /// Return a larger width and height if the image needs to be increased in size.
 pub fn fill(size: Size, preferred: Size) ?Size {
-    var scale: f64 = preferred.width / size.width;
+    var scale: f64 = @as(f64, @floatFromInt(preferred.width)) / @as(f64, @floatFromInt(size.width));
 
-    const scale2: f64 = preferred.height / size.height;
+    const scale2: f64 = @as(f64, @floatFromInt(preferred.height)) / @as(f64, @floatFromInt(size.height));
     if (scale2 > scale) scale = scale2;
 
     const result = Size{
-        .width = size.width * scale,
-        .height = size.height * scale,
+        .width = @as(u32, @intFromFloat(@as(f64, @floatFromInt(size.width)) * scale)),
+        .height = @as(u32, @intFromFloat(@as(f64, @floatFromInt(size.height)) * scale)),
     };
 
     if (result.width == size.width and result.height == size.height)
@@ -177,16 +197,16 @@ pub fn fit(size: Size, preferred: Size) ?Size {
     var scale: f64 = 1.0;
 
     if (size.width > preferred.width)
-        scale = preferred.width / size.width;
+        scale = @as(f64, @floatFromInt(preferred.width)) / @as(f64, @floatFromInt(size.width));
 
     if (size.height > preferred.height) {
-        const scale2: f64 = preferred.height / size.height;
+        const scale2: f64 = @as(f64, @floatFromInt(preferred.height)) / @as(f64, @floatFromInt(size.height));
         if (scale2 < scale) scale = scale2;
     }
 
     const result = Size{
-        .width = @round(size.width * scale),
-        .height = @round(size.height * scale),
+        .width = @as(u32, @intFromFloat(@as(f64, @floatFromInt(size.width)) * scale)),
+        .height = @as(u32, @intFromFloat(@as(f64, @floatFromInt(size.height)) * scale)),
     };
 
     if (result.width == size.width and result.height == size.height)
@@ -285,8 +305,15 @@ test "test_fill" {
         .{ .width = 90, .height = 80 },
         .{ .width = 100, .height = 100 },
     ).?;
-    try expectEqual(112.5, size9.width);
+    try expectEqual(112, size9.width); // 112.5
     try expectEqual(100, size9.height);
+
+    const size9a = fill(
+        .{ .width = 91, .height = 80 },
+        .{ .width = 100, .height = 100 },
+    ).?;
+    try expectEqual(113, size9a.width);
+    try expectEqual(100, size9a.height);
 
     const size10 = fill(
         .{ .width = 200, .height = 200 },
@@ -312,7 +339,7 @@ test "test_fill" {
         .{ .width = 100, .height = 100 },
     ).?;
     try expectEqual(100, size13.width);
-    try expectEqual(133, @as(usize, @intFromFloat(size13.height)));
+    try expectEqual(133, size13.height);
 }
 
 test "test_fit" {
@@ -382,29 +409,32 @@ test "export_image" {
     const resource = try resources.lookupOne("δύο κρέα", .image, gpa);
     try expect(resource != null);
 
-    const to_dir = std.fs.cwd();
-
-    if (true) return;
-
-    try exportImage(
+    const data = try exportImage(
         gpa,
-        resources,
         resource.?,
-        to_dir,
-        "test.jpg",
-        .{ .width = 100, .height = 200 },
-        .cover,
+        resources,
+        .{ .width = 800, .height = 800 },
+        //.{ .width = 100, .height = 200 },
+        .fill,
+        .jpg,
     );
+    defer gpa.free(data);
 
-    try exportImage(
+    const data2 = try exportImage(
         gpa,
-        resources,
         resource.?,
-        to_dir,
-        "test2.jpg",
+        resources,
         .{ .width = 300, .height = 120 },
-        .cover,
+        .fill,
+        .png,
     );
+    defer gpa.free(data2);
+
+    //try write_file_bytes(gpa, "/tmp/test.jpg", data);
+    //try write_file_bytes(gpa, "/tmp/test.png", data2);
+
+    try expectEqual(18621, data.len);
+    try expectEqual(11669, data2.len);
 }
 
 const std = @import("std");
@@ -412,6 +442,7 @@ const Allocator = std.mem.Allocator;
 const err = std.log.err;
 const warn = std.log.warn;
 const info = std.log.info;
+const debug = std.log.debug;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -419,3 +450,6 @@ const Resource = @import("resources.zig").Resource;
 const Resources = @import("resources.zig").Resources;
 const zstbi = @import("zstbi");
 const zigimg = @import("zigimg");
+const Image = zstbi.Image;
+
+//const write_file_bytes = @import("resources.zig").write_file_bytes;

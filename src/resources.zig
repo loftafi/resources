@@ -73,7 +73,7 @@ pub const Resources = struct {
         }
     };
 
-    pub const Error = error{ FailedReadingRepo, ReadRepoFileFailed, ReadMetadataFailed, InvalidResourceUID, MetadataMissing, FilenameTooLong, ResourceHasNoFilename, QueryTooLong, QueryEmpty, QueryEncodingError, InvalidBundleFile, BundleTooShortToExtractFile, UnknownImageOrientation };
+    pub const Error = error{ FailedReadingRepo, ReadRepoFileFailed, ReadMetadataFailed, InvalidResourceUID, MetadataMissing, FilenameTooLong, ResourceHasNoFilename, QueryTooLong, QueryEmpty, QueryEncodingError, InvalidBundleFile, BundleTooShortToExtractFile, UnknownImageOrientation, ImageConversionError };
 
     pub fn create(parent_allocator: Allocator) error{OutOfMemory}!*Resources {
         var arena = try parent_allocator.create(std.heap.ArenaAllocator);
@@ -234,13 +234,22 @@ pub const Resources = struct {
             const stat = try file.stat();
             const size = stat.size;
 
-            if (options.audio == .ogg) {
+            if (resource.resource == .wav and options.audio == .ogg) {
                 const processed = generate_ogg_audio(self.parent_allocator, resource, self) catch |f| {
                     log.err("generate_ogg_audio_failed. {any}  {s}", .{ f, resource.filename.? });
                     continue;
                 };
                 defer self.parent_allocator.free(processed);
                 debug("{s} wav {d} to {d} bytes", .{ filename, stat.size, processed.len });
+            }
+
+            if ((resource.resource == .jpg or resource.resource == .png) and options.image == .jpg) {
+                const processed = exportImage(self.parent_allocator, resource, self, .{ .width = 800, .height = 800 }, .fill, .jpg) catch |f| {
+                    log.err("exportImage. {any}  {s}", .{ f, resource.filename.? });
+                    continue;
+                };
+                defer self.parent_allocator.free(processed);
+                debug("{s} {t} {d} to {d} bytes", .{ filename, resource.resource, stat.size, processed.len });
             }
 
             if (size > 0xffffffff) {
