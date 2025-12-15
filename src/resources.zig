@@ -131,7 +131,8 @@ pub const Resources = struct {
     }
 
     // Load the table of contents of a file resource bundle into memory
-    // so that files inside can be searched/loaded.
+    // so that files inside can be searched/loaded. The package level `seed()`
+    // function should be called before calling `load_directory`.
     pub fn load_bundle(self: *Resources, bundle_filename: []const u8) (Allocator.Error || std.fs.File.OpenError || Error || std.fs.File.ReadError || std.io.Reader.Error)!void {
         var buffer: [300:0]u8 = undefined;
         var rbuffer: [4196:0]u8 = undefined;
@@ -388,7 +389,8 @@ pub const Resources = struct {
 
     // Load the full list of usable files inside the `folder` along with
     // any associated metadata files so that each file can be searched for
-    // and loaded.
+    // and loaded. The package level `seed()` function should be called before
+    // calling `load_directory`.
     pub fn load_directory(self: *Resources, folder: []const u8) (Error || error{
         OutOfMemory,
         Utf8InvalidStartByte,
