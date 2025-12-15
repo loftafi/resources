@@ -1,5 +1,7 @@
 const max_audio_file_size = 1024 * 1024 * 5;
 
+var ffmpeg_binary: ?[]const u8 = null;
+
 /// Read a wav file, normalise it, then pass it through ffmpeg to
 /// create an ogg data file.
 pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: *Resources) (wav.Error || Allocator.Error || Resources.Error || error{FfmpegFailure} || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.SeekError || std.Io.Reader.Error || std.process.Child.RunError)![]const u8 {
@@ -17,8 +19,21 @@ pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: 
     audio.faders();
     defer audio.destroy(gpa);
 
+    if (ffmpeg_binary == null) {
+        if (std.fs.cwd().statFile("/usr/bin/ffmpeg")) |_| {
+            ffmpeg_binary = "/usr/bin/ffmpeg";
+        } else |_| {}
+        if (std.fs.cwd().statFile("/opt/homebrew/bin/ffmpeg")) |_| {
+            ffmpeg_binary = "/opt/homebrew/bin/ffmpeg";
+        } else |_| {}
+        if (ffmpeg_binary == null) {
+            return error.FfmpegFailure;
+        }
+        debug("Found ffmpeg in {s}", .{ffmpeg_binary.?});
+    }
+
     const argv = [_][]const u8{
-        "/opt/homebrew/bin/ffmpeg",
+        ffmpeg_binary.?,
         "-i",
         "pipe:0", //infile,
         "-filter:a",
