@@ -167,7 +167,10 @@ test "audio_to_ogg" {
 
     const data = try generate_ogg_audio(gpa, resource.?, resources);
     defer gpa.free(data);
-    try expectEqual(25954, data.len);
+
+    // Different versions of ffmpeg create a slightly different sized file.
+    try expect(data.len < 25954 + 1000);
+    try expect(data.len > 25954 - 1000);
 
     //try write_file_bytes(gpa, "/tmp/test.ogg", data);
 }
@@ -179,6 +182,7 @@ const assert = std.debug.assert;
 const debug = std.log.debug;
 const err = std.log.err;
 
+const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
