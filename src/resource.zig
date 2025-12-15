@@ -35,18 +35,21 @@ pub const Resource = struct {
         .size = 0,
     };
 
-    pub fn create(arena: Allocator) error{OutOfMemory}!*Resource {
-        const resource = try arena.create(Resource);
-        errdefer arena.destroy(resource);
+    /// Create a `Resource` initialised with the `.empty` placeholder settings.
+    pub fn create(allocator: Allocator) Allocator.Error!*Resource {
+        const resource = try allocator.create(Resource);
+        errdefer allocator.destroy(resource);
         resource.* = .empty;
         return resource;
     }
 
+    /// `deinit` and `destroy` a `create`d resource object.
     pub fn destroy(self: *Resource, allocator: Allocator) void {
         self.deinit(allocator);
         allocator.destroy(self);
     }
 
+    /// Free any memory allocated by this object.
     pub fn deinit(self: *Resource, allocator: Allocator) void {
         for (self.sentences.items) |s| {
             allocator.free(s);
@@ -126,7 +129,8 @@ pub const Resource = struct {
         return @bitCast(data[0..8].*);
     }
 
-    pub fn read_metadata(self: *Resource, arena: Allocator, data: []const u8) (error{ InvalidResourceUID, ReadMetadataFailed, MetadataMissing } || Allocator.Error)!void {
+    /// Update fields of this object using metadata fileds in a text file.
+    pub fn read_metadata(self: *Resource, allocator: Allocator, data: []const u8) (error{ InvalidResourceUID, ReadMetadataFailed, MetadataMissing } || Allocator.Error)!void {
         var text = data;
         while (text.len > 0) {
 
@@ -152,11 +156,11 @@ pub const Resource = struct {
             if (value.len == 0) continue;
 
             switch (field) {
-                's', 'S' => try self.add_sentence(arena, value),
-                'c', 'C' => self.copyright = try arena.dupe(u8, value),
+                's', 'S' => try self.add_sentence(allocator, value),
+                'c', 'C' => self.copyright = try allocator.dupe(u8, value),
                 'v', 'V' => self.visible = is_true(value),
-                'd', 'D' => self.date = try arena.dupe(u8, value),
-                'l', 'L' => self.link = try arena.dupe(u8, value),
+                'd', 'D' => self.date = try allocator.dupe(u8, value),
+                'l', 'L' => self.link = try allocator.dupe(u8, value),
                 'i', 'I' => {
                     if (value.len > max_uid_length) {
                         self.uid = decode_uid(u64, value[0..max_uid_length]) catch {
@@ -175,7 +179,10 @@ pub const Resource = struct {
         }
     }
 
-    fn add_sentence(self: *Resource, arena: Allocator, text: []const u8) (error{MetadataMissing} || Allocator.Error)!void {
+    /// Attach a sentence to this resource, ensuring that no duplicate
+    /// sentences are added. If non significant punctuation is found at the
+    /// end of this sentence, also attach a non punctuated version.
+    fn add_sentence(self: *Resource, allocator: Allocator, text: []const u8) (error{MetadataMissing} || Allocator.Error)!void {
         if (text.len == 0) return error.MetadataMissing;
 
         var found = false;
@@ -186,19 +193,19 @@ pub const Resource = struct {
             }
         }
         if (!found)
-            try self.sentences.append(arena, try arena.dupe(u8, text));
+            try self.sentences.append(allocator, try allocator.dupe(u8, text));
 
         if (sentence_trim(text)) |trim| {
             if (trim.len > 0) {
                 found = false;
                 for (self.sentences.items) |i| {
-                    if (std.mem.eql(u8, text, i)) {
+                    if (std.mem.eql(u8, trim, i)) {
                         found = true;
                         break;
                     }
                 }
                 if (!found)
-                    try self.sentences.append(arena, try arena.dupe(u8, trim));
+                    try self.sentences.append(allocator, try allocator.dupe(u8, trim));
             }
         }
     }
@@ -228,8 +235,8 @@ fn remove_extension(path: []const u8) []const u8 {
     return path;
 }
 
-// Wav files don't have metadata files, so the metadata is extracted
-// from the file name itself.
+/// Wav files don't have metadata files, so the metadata is extracted
+/// from the file name itself.
 fn extract_wav_name(allocator: Allocator, file: []const u8) error{OutOfMemory}!?[]const u8 {
     var start: usize = file.len;
     var end: usize = file.len;
@@ -281,6 +288,19 @@ test "remove_extension" {
     try expectEqualStrings("/ha.ppy/fish", remove_extension("/ha.ppy/fish"));
     try expectEqualStrings("/happy/fish", remove_extension("/happy/fish.js"));
     try expectEqualStrings("c:\\happy\\fish", remove_extension("c:\\happy\\fish.txt"));
+}
+
+test "add_sentence" {
+    const allocator = std.testing.allocator;
+
+    var r = Resource.empty;
+    defer r.deinit(allocator);
+
+    try r.add_sentence(allocator, "The fish.");
+
+    try expectEqual(2, r.sentences.items.len);
+    try expectEqualStrings("The fish.", r.sentences.items[0]);
+    try expectEqualStrings("The fish", r.sentences.items[1]);
 }
 
 test "wav_filename" {
