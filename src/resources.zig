@@ -358,7 +358,6 @@ pub const Resources = struct {
         };
 
         try output.writeAll(header.items);
-        //debug("header index contains {d} files", .{header_items.items.len});
 
         // Add the files
         for (header_items.items) |item| {
@@ -370,13 +369,12 @@ pub const Resources = struct {
             } else {
                 data = try self.read_data(item.resource, self.parent_allocator);
             }
+            defer self.parent_allocator.free(data);
             if (data.len != item.size) {
                 err("Bundle index item size inconsistency: {d} != {d} (uid={s})", .{ data.len, item.size, uid });
                 return error.ReadMetadataFailed;
             }
-            //debug("add file type={t} to bundle", .{item.resource.resource});
-            defer self.parent_allocator.free(data);
-            err("write file {s} at byte {d} .. {d}", .{ uid, header_size + item.file_index, header_size + item.file_index + item.size });
+
             try output.writeAll(data);
         }
     }
