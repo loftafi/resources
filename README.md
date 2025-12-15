@@ -9,6 +9,7 @@ into a bundle for distribution.
 // Load a repository folder of files (with metadata files)
 var bucket = try Resources.create(allocator);
 defer bucket.destroy();
+seed(); // If a uid is generated, make sure it is unique.
 _ = bucket.load_directory(folder) catch |e| {
     std.debug.print("error {any} while loading {s}\n", .{ e, folder });
     return Error.FailedReadingRepo;
