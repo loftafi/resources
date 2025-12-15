@@ -199,100 +199,141 @@ pub const Resources = struct {
     // Save the `manifest` list of resources into a single data data file
     // with a table of contents.
     pub fn save_bundle(self: *Resources, filename: []const u8, manifest: []*const Resource, options: Options, cache: []const u8) (Allocator.Error || Resources.Error || std.fs.File.OpenError || std.fs.File.WriteError || std.Io.Writer.Error || std.Io.Reader.Error || std.fs.File.SeekError || std.fs.File.ReadError || std.fs.Dir.OpenError || std.fs.Dir.RenameError)!void {
-        const version = 1;
-        var header: ArrayListUnmanaged(u8) = .empty;
-        defer header.deinit(self.parent_allocator);
-        var header_items: ArrayListUnmanaged(BundleResource) = .empty;
-        defer header_items.deinit(self.parent_allocator);
-
-        const b1 = @as(u8, @intCast(random(230) + 10));
-        try append_u8(&header, b1, self.parent_allocator);
-        try append_u8(&header, b1 + 9, self.parent_allocator);
-        try append_u8(&header, b1 + version, self.parent_allocator);
-
         const cache_dir = std.fs.openDirAbsolute(cache, .{ .iterate = false }) catch |f| {
             err("Failed to access cache folder: {s} {any}", .{ cache, f });
             return f;
         };
 
-        const output = std.fs.cwd().createFile(filename, .{ .truncate = true }) catch |e| {
-            err("Failed to create repo bundle file: {s} {any}", .{ filename, e });
-            return e;
-        };
+        // Step 1: Build the table of contents
+        var header_items: ArrayListUnmanaged(BundleResource) = .empty;
+        defer header_items.deinit(self.parent_allocator);
 
-        // Estimate the size of the header + table of contents so know where the first
-        // file byte of the first file is going to appear
-        var file_index: usize = 1 + 1 + 1 + 3;
-
-        // Build the table of contents so we can estimate the size of it.
+        var header_size: usize = 1 + 1 + 1 + 3; // Count the header size
+        var file_index: usize = 0; // Count the file index position (after header)
+        var buff: [40:0]u8 = undefined;
+        var buff2: [100]u8 = undefined; // uid length plus file extension
         for (manifest) |resource| {
+            const uid = encode(u64, resource.uid, &buff);
             if (resource.filename == null) {
-                err("Resource object missing filename: {d}. Resource probably lives in a bundle.", .{resource.uid});
+                err("Resource object missing filename: {s}. Resource probably lives in a bundle.", .{uid});
                 continue;
             }
+
             const file = std.fs.cwd().openFile(resource.filename.?, .{ .mode = .read_only }) catch |e| {
-                err("Repo file missing: {s}", .{resource.filename.?});
+                err("Repo file missing: {s}", .{uid});
                 return e;
             };
             defer file.close();
 
             const stat = try file.stat();
-            const size = stat.size;
+            var add_size = stat.size;
+            var add_type = resource.resource;
+
+            //std.log.info("output file: {s} size={d}", .{ uid, size });
 
             if (resource.resource == .wav and options.audio == .ogg) {
-                const processed = generate_ogg_audio(self.parent_allocator, resource, self) catch |f| {
-                    err("generate_ogg_audio_failed. {any}  {s}", .{ f, resource.filename.? });
-                    continue;
-                };
-                defer self.parent_allocator.free(processed);
-                debug("{s} wav {d} to {d} bytes", .{ filename, stat.size, processed.len });
-                try write_folder_file_bytes(self.parent_allocator, cache_dir, filename, processed);
+                const name = try std.fmt.bufPrint(&buff2, "{s}.ogg", .{uid});
+                std.log.info("check cache for: {s}", .{name});
+                if (try cache_has_file(cache_dir, name)) |cache_size| {
+                    add_size = cache_size;
+                } else {
+                    std.log.info("generating ogg for {s} wav. {s}", .{ name, uid });
+                    const processed = generate_ogg_audio(self.parent_allocator, resource, self) catch |f| {
+                        err("generate_ogg_audio_failed. {any} Skipping {s}. {s}", .{ f, uid, resource.filename.? });
+                        continue;
+                    };
+                    std.log.info("generated ogg for {s} wav. {s} size={d}", .{ name, uid, processed.len });
+                    defer self.parent_allocator.free(processed);
+                    //std.log.info("{s} wav {d} to {d} bytes", .{ filename, stat.size, processed.len });
+                    try write_folder_file_bytes(self.parent_allocator, cache_dir, name, processed);
+                }
+                add_type = .ogg;
             }
 
             if ((resource.resource == .jpg or resource.resource == .png) and options.image == .jpg) {
-                const processed = exportImage(self.parent_allocator, resource, self, .{ .width = 800, .height = 800 }, .fill, .jpg) catch |f| {
-                    err("exportImage. {any}  {s}", .{ f, resource.filename.? });
-                    continue;
-                };
-                defer self.parent_allocator.free(processed);
-                debug("{s} {t} {d} to {d} bytes", .{ filename, resource.resource, stat.size, processed.len });
-                try write_folder_file_bytes(self.parent_allocator, cache_dir, filename, processed);
+                const name = try std.fmt.bufPrint(&buff2, "{s}.jpg", .{uid});
+                std.log.info("check cache for: {s}", .{name});
+                if (try cache_has_file(cache_dir, name)) |cache_size| {
+                    add_size = cache_size;
+                } else {
+                    const processed = exportImage(self.parent_allocator, resource, self, .{ .width = 800, .height = 800 }, .fill, .jpg) catch |f| {
+                        err("exportImage. {any}  {s}", .{ f, uid });
+                        continue;
+                    };
+                    defer self.parent_allocator.free(processed);
+                    //std.log.info("{s} {t} {d} to {d} bytes", .{ filename, resource.resource, stat.size, processed.len });
+                    try write_folder_file_bytes(self.parent_allocator, cache_dir, name, processed);
+                }
+                add_type = .jpg;
+            }
+            add_size = stat.size;
+
+            //std.log.info("adding file: {s} size={d} type={t}", .{ uid, add_size, add_type });
+
+            if (add_size > 0xffffffff) {
+                err("File too large to bundle: uid={s} type={t}", .{ uid, resource.resource });
+                continue;
             }
 
-            if (size > 0xffffffff)
-                err("File too large to bundle: {s}", .{resource.filename.?});
-
             var names = resource.sentences.items;
-            if (names.len > 254)
+            if (names.len > 254) {
                 names = resource.sentences.items[0..254];
+                err("Sentence was shortened to 255 characters. uid={s} type={t}", .{ uid, resource.resource });
+            }
 
             if (names.len == 0) {
-                err("Resource has no sentences: {s} {any}", .{
-                    resource.filename.?,
-                    @tagName(resource.resource),
-                });
+                err("Resource has no sentences: uid={s} type={t}", .{ uid, resource.resource });
+                continue;
+            }
+
+            if (names.len > std.math.maxInt(u8)) {
+                err("Resource has no sentences: uid={s} type={t}", .{ uid, resource.resource });
                 continue;
             }
 
             try header_items.append(self.parent_allocator, .{
-                .type = @intFromEnum(resource.resource),
+                .type = @intFromEnum(add_type),
                 .uid = resource.uid,
-                .size = @as(u32, @intCast(size)),
+                .size = @as(u32, @intCast(add_size)),
                 .names = names,
+                .file_index = file_index,
+                .resource = resource,
             });
-            file_index += 1 + 8 + 4 + 1 + 8;
+
+            std.debug.assert(1 == @sizeOf(@FieldType(BundleResource, "type")));
+            std.debug.assert(8 == @sizeOf(@FieldType(BundleResource, "uid")));
+            std.debug.assert(4 == @sizeOf(@FieldType(BundleResource, "size")));
+            std.debug.assert(8 == @sizeOf(@FieldType(BundleResource, "file_index")));
+
+            header_size +=
+                @sizeOf(@FieldType(BundleResource, "type")) +
+                @sizeOf(@FieldType(BundleResource, "uid")) +
+                @sizeOf(@FieldType(BundleResource, "size")) +
+                @sizeOf(u8) + // Number of names/sentences
+                @sizeOf(@FieldType(BundleResource, "file_index"));
             for (names) |sentence| {
-                file_index += 1 + sentence.len;
+                header_size += @sizeOf(u8) + sentence.len;
             }
+
+            file_index += add_size;
         }
 
+        // Step 2: Write the header and the contents into the bundle
+
+        const version = 1;
+        var header: ArrayListUnmanaged(u8) = .empty;
+        defer header.deinit(self.parent_allocator);
+        const b1 = @as(u8, @intCast(random(230) + 10));
+        try append_u8(&header, b1, self.parent_allocator);
+        try append_u8(&header, b1 + 9, self.parent_allocator);
+        try append_u8(&header, b1 + version, self.parent_allocator);
         try append_u24(&header, @as(u24, @intCast(header_items.items.len)), self.parent_allocator);
 
         // Add the table of contents
         for (header_items.items) |item| {
             try append_u8(&header, @as(u8, item.type), self.parent_allocator);
             try append_u64(&header, item.uid, self.parent_allocator);
-            try append_u32(&header, @intCast(item.size), self.parent_allocator);
+            try append_u32(&header, item.size, self.parent_allocator);
             try append_u8(&header, @intCast(item.names.len), self.parent_allocator);
             for (item.names) |sentence| {
                 try append_u8(&header, @as(u8, @intCast(sentence.len)), self.parent_allocator);
@@ -302,11 +343,16 @@ pub const Resources = struct {
             file_index += item.size;
         }
 
+        const output = std.fs.cwd().createFile(filename, .{ .truncate = true }) catch |e| {
+            err("Failed to create repo bundle file: {s} {any}", .{ filename, e });
+            return e;
+        };
+
         try output.writeAll(header.items);
 
         // Add the files
-        for (manifest) |resource| {
-            const data = try self.read_data(resource, self.parent_allocator);
+        for (header_items.items) |item| {
+            const data = try self.read_data(item.resource, self.parent_allocator);
             defer self.parent_allocator.free(data);
             try output.writeAll(data);
         }
@@ -722,6 +768,8 @@ pub const BundleResource = struct {
     size: u32,
     type: u8,
     names: []const []const u8,
+    resource: *const Resource,
+    file_index: usize, // Position of file inside bundle not including header size.
 };
 
 /// Return a slice of a sentence with trailing punctuation removed. This
@@ -777,15 +825,21 @@ pub fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) 
 pub fn write_folder_file_bytes(gpa: Allocator, folder: std.fs.Dir, filename: []const u8, data: []const u8) (Allocator.Error || std.Io.Writer.Error || std.fs.File.WriteError || std.fs.File.OpenError || std.fs.Dir.RenameError)!void {
     const tmp_filename = try std.fmt.allocPrint(gpa, "{s}.{d}", .{ filename, std.time.milliTimestamp() });
     const file = folder.createFile(tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
-        err(
-            "Failed to open file for writing: {s}. {any}",
-            .{ filename, e },
-        );
+        err("Failed to open file for writing: {s}. {any}", .{ filename, e });
         return e;
     };
     defer file.close();
     try file.writeAll(data);
+    //std.log.info("rename {s} to {s}", .{ tmp_filename, filename });
     try folder.rename(tmp_filename, filename);
+}
+
+pub fn cache_has_file(folder: std.fs.Dir, filename: []const u8) (std.fs.File.StatError || std.fs.Dir.StatFileError)!?usize {
+    const stat = folder.statFile(filename) catch |f| {
+        if (f == error.FileNotFound) return null;
+        return f;
+    };
+    return stat.size;
 }
 
 pub fn load_file_bytes(allocator: Allocator, filename: []const u8) (Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError)![]u8 {

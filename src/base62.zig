@@ -42,7 +42,7 @@ pub fn encode(comptime I: type, uid: I, result: *[40:0]u8) []const u8 {
 
 pub fn encode_writer(comptime I: type, uid: I) type {
     return struct {
-        pub fn format(out: *std.Io.Writer) error{WriteFailed}!void {
+        pub inline fn format(_: @This(), out: *std.Io.Writer) std.Io.Writer.Error!void {
             var value: I = uid;
 
             if (uid == 0) {
@@ -131,6 +131,13 @@ test "encode_stream" {
     const out4 = try std.fmt.allocPrint(gpa, "{f}", .{encode_writer(usize, 62 * 62 + 1)});
     defer gpa.free(out4);
     try seq("BAB", out4);
+
+    {
+        for (0..5) |i| {
+            const o = try std.fmt.allocPrint(gpa, "{f}", .{encode_writer(usize, i)});
+            gpa.free(o);
+        }
+    }
 }
 
 test "decode" {

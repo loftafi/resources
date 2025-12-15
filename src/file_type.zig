@@ -63,8 +63,8 @@ pub const Type = enum(u8) {
         if (ext.len == 0) return .unknown;
 
         if (std.ascii.eqlIgnoreCase(ext, "png")) return .png;
-        if (std.ascii.eqlIgnoreCase(ext, "svg")) return .svg;
         if (std.ascii.eqlIgnoreCase(ext, "jpg")) return .jpg;
+        if (std.ascii.eqlIgnoreCase(ext, "svg")) return .svg;
         if (std.ascii.eqlIgnoreCase(ext, "ogg")) return .ogg;
         if (std.ascii.eqlIgnoreCase(ext, "mp3")) return .mp3;
         if (std.ascii.eqlIgnoreCase(ext, "wav")) return .wav;
