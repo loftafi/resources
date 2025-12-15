@@ -54,17 +54,13 @@ pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: 
     //defer ffmpeg.stdout.?.close();
     //defer ffmpeg.stderr.?.close();
 
-    std.log.info("ffmpeg send loop", .{});
     try send_data(gpa, &ffmpeg, data, &stdout, &stderr, max_audio_file_size);
 
-    std.log.info("ffmpeg waiting", .{});
     const result = ffmpeg.wait() catch |f| {
         std.log.err("Error waiting ffmpeg process for {d}. Error:{any}", .{ resource.uid, f });
         return error.FfmpegFailure;
     };
-    std.log.info("ffmpeg returned {t}", .{result});
 
-    err("Build ogg file debug.\n{any}", .{ffmpeg.stderr});
     if (result != .Exited)
         err("Build ogg file failed.\n{any}", .{ffmpeg.stderr});
 
@@ -121,9 +117,9 @@ pub fn send_data(
             return error.StderrStreamTooLong;
         if (data.len > 0) {
             const l = if (data.len < block_size) data.len else block_size;
-            std.log.err("sendiing {d} bytes. {d} bytes left", .{ l, data.len });
+            //debug("sending {d} bytes. {d} bytes left", .{ l, data.len });
             child.stdin.?.writeAll(data[0..l]) catch |f| {
-                std.log.err("Error sending audio to ffmpeg process. Error:{any}", .{f});
+                err("Error sending audio to ffmpeg. Error:{any}", .{f});
                 return error.FfmpegFailure;
             };
             if (data.len < block_size) {
@@ -134,11 +130,8 @@ pub fn send_data(
             } else {
                 data = data[block_size..];
             }
-        } else {
-            std.log.err("wait more", .{});
         }
     }
-    std.log.err("loop ended", .{});
 }
 
 const block_size = 50000;

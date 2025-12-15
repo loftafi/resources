@@ -68,7 +68,7 @@ pub const Resource = struct {
         filename: []const u8,
         file_name: []const u8,
         file_type: Resource.Type,
-    ) (error{OutOfMemory} || Resources.Error)!void {
+    ) (error{OutOfMemory} || Resources.Error || std.fs.File.StatError || std.fs.File.OpenError || std.fmt.BufPrintError)!void {
         if (filename.len > 0) self.filename = try arena.dupeZ(u8, filename);
 
         self.resource = file_type;
@@ -91,6 +91,9 @@ pub const Resource = struct {
             if (e == error.FileNotFound) {
                 // If no metadata file exists, default to visible
                 self.visible = true;
+                if (self.uid == 0 and file_type == .wav) {
+                    self.uid = try hash_uid(file_name, filename);
+                }
                 return;
             } else {
                 return error.ReadMetadataFailed;
@@ -107,7 +110,20 @@ pub const Resource = struct {
             };
         }
 
-        try self.read_metadata(arena, data_nfc.slice);
+        return self.read_metadata(arena, data_nfc.slice);
+    }
+
+    /// Form a uid from the name of the file and the size of the file. Not
+    /// perfect, but it is faster than continually hashing entire files
+    pub fn hash_uid(name: []const u8, path_name: []const u8) (std.fs.File.StatError || std.fs.File.OpenError)!u64 {
+        var buff: [40]u8 = undefined;
+        const stat = try std.fs.cwd().statFile(path_name);
+        const size_info = try std.fmt.bufPrint(&buff, "{d}", .{stat.size});
+        var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
+        sha256.update(name);
+        sha256.update(size_info);
+        const data = sha256.finalResult();
+        return @bitCast(data[0..8].*);
     }
 
     pub fn read_metadata(self: *Resource, arena: Allocator, data: []const u8) (error{ InvalidResourceUID, ReadMetadataFailed, MetadataMissing } || Allocator.Error)!void {
