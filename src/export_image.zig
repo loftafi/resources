@@ -404,7 +404,7 @@ test "export_image" {
 
     var resources = try Resources.create(std.testing.allocator);
     defer resources.destroy();
-    _ = try resources.load_directory("./test/repo/");
+    _ = try resources.load_directory("./test/repo/", null);
 
     const resource = try resources.lookupOne("δύο κρέα", .image, gpa);
     try expect(resource != null);

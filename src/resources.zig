@@ -132,7 +132,9 @@ pub const Resources = struct {
 
     // Load the table of contents of a file resource bundle into memory
     // so that files inside can be searched/loaded. The package level `seed()`
-    // function should be called before calling `load_directory`.
+    // function should be called before calling `load_directory`. To ignore
+    // some files in the source folder, implement a filter function that
+    // returns true if a file name or type should be skipped.
     pub fn load_bundle(self: *Resources, bundle_filename: []const u8) (Allocator.Error || std.fs.File.OpenError || Error || std.fs.File.ReadError || std.io.Reader.Error)!void {
         var buffer: [300:0]u8 = undefined;
         var rbuffer: [4196:0]u8 = undefined;
@@ -391,7 +393,11 @@ pub const Resources = struct {
     // any associated metadata files so that each file can be searched for
     // and loaded. The package level `seed()` function should be called before
     // calling `load_directory`.
-    pub fn load_directory(self: *Resources, folder: []const u8) (Error || error{
+    pub fn load_directory(
+        self: *Resources,
+        folder: []const u8,
+        filter: ?fn (name: []const u8, type: Resource.Type) bool,
+    ) (Error || error{
         OutOfMemory,
         Utf8InvalidStartByte,
         Utf8ExpectedContinuation,
@@ -415,6 +421,10 @@ pub const Resources = struct {
             if (file.kind != .file) continue;
 
             const file_info = get_file_type(file.name);
+
+            if (filter) |f| {
+                if (f(file_info.name, file_info.extension)) continue;
+            }
 
             if (file_info.extension == .unknown) {
                 if (!std.mem.endsWith(u8, file.name, ".txt"))
@@ -753,17 +763,11 @@ fn get_file_type(file: []const u8) struct { name: []const u8, extension: Resourc
         if (full_name[cut - 1] == '/' or full_name[cut - 1] == '\\') break;
         cut -= 1;
     }
-    const name = full_name[cut..];
-    var etype = Resource.Type.parse(ext);
 
-    if (etype == .wav and
-        !std.ascii.startsWithIgnoreCase(name, "jay~") and
-        std.mem.indexOf(u8, name, "~") != null)
-    {
-        etype = .unknown;
-    }
-
-    return .{ .name = name, .extension = etype };
+    return .{
+        .name = full_name[cut..],
+        .extension = Resource.Type.parse(ext),
+    };
 }
 
 /// Return the file extension or null if no file extension exists. File
@@ -1017,7 +1021,7 @@ test "search resources" {
     var resources = try Resources.create(gpa);
     defer resources.destroy();
 
-    _ = try resources.load_directory("./test/repo/");
+    _ = try resources.load_directory("./test/repo/", null);
 
     //var i = resources.by_filename.index.keyIterator();
     //while (i.next()) |key| {
@@ -1139,7 +1143,7 @@ test "bundle" {
     {
         var resources = try Resources.create(gpa);
         defer resources.destroy();
-        _ = try resources.load_directory("./test/repo/");
+        _ = try resources.load_directory("./test/repo/", null);
 
         //var i = resources.by_filename.index.iterator();
         //while (i.next()) |r| {

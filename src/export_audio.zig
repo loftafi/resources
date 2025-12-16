@@ -156,7 +156,7 @@ test "audio_to_ogg" {
     var resources = try Resources.create(gpa);
     defer resources.destroy();
 
-    _ = try resources.load_directory("./test/repo/");
+    _ = try resources.load_directory("./test/repo/", null);
     const resource = try resources.lookupOne("ἄρτος", .wav, gpa);
 
     //try expect(0 != resource.uid);

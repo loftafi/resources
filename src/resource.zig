@@ -268,8 +268,6 @@ fn extract_wav_name(allocator: Allocator, file: []const u8) error{OutOfMemory}!?
         }
         if (start == end) return null;
         std.debug.assert(start <= end);
-        const voice = file[start..end];
-        if (!std.ascii.eqlIgnoreCase("jay", voice)) return null;
     }
 
     return try allocator.dupe(u8, name);
@@ -367,7 +365,8 @@ test "wav_filename" {
     }
     {
         const name = try extract_wav_name(allocator, "other~ἀρτος.wav");
-        try expectEqual(null, name);
+        defer allocator.free(name.?);
+        try expectEqualStrings("ἀρτος", name.?);
     }
 }
 
