@@ -4,20 +4,29 @@ var ffmpeg_binary: ?[]const u8 = null;
 
 /// Read a wav file, normalise it, then pass it through ffmpeg to
 /// create an ogg data file.
-pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: *Resources) (wav.Error || Allocator.Error || Resources.Error || error{FfmpegFailure} || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.SeekError || std.Io.Reader.Error || std.process.Child.RunError)![]const u8 {
-    const data = resources.read_data(resource, gpa) catch |f| {
+pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: *Resources, options: Options) (wav.Error || Allocator.Error || Resources.Error || error{FfmpegFailure} || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.SeekError || std.Io.Reader.Error || std.process.Child.RunError || std.Io.Writer.Error)![]const u8 {
+    var data = resources.read_data(resource, gpa) catch |f| {
         err("Failed to read wav data for {d}. Error:{any}", .{ resource.uid, f });
         return f;
     };
     defer gpa.free(data);
 
-    var audio = wav.Engine.initWithWav(gpa, data) catch |f| {
-        err("Failed to import wav data for {d}. Error:{any}", .{ resource.uid, f });
-        return f;
-    };
-    audio.normalise(0.95);
-    audio.faders();
-    defer audio.destroy(gpa);
+    if (options.normalise_audio) {
+        var clean: std.ArrayListUnmanaged(u8) = .empty;
+        errdefer clean.deinit(gpa);
+        var audio = wav.Engine.initWithWav(gpa, data) catch |f| {
+            err("Failed to import wav data for {d}. Error:{any}", .{ resource.uid, f });
+            return f;
+        };
+        audio.normalise(0.95);
+        audio.faders();
+        defer audio.destroy(gpa);
+
+        try audio.write(clean.writer(gpa));
+
+        gpa.free(data);
+        data = try clean.toOwnedSlice(gpa);
+    }
 
     if (ffmpeg_binary == null) {
         if (std.fs.cwd().statFile("/usr/bin/ffmpeg")) |_| {
@@ -165,7 +174,7 @@ test "audio_to_ogg" {
     try expectEqual(1, resource.?.sentences.items.len);
     try expectEqualStrings("ἄρτος", resource.?.sentences.items[0]);
 
-    const data = try generate_ogg_audio(gpa, resource.?, resources);
+    const data = try generate_ogg_audio(gpa, resource.?, resources, .{});
     defer gpa.free(data);
 
     // Different versions of ffmpeg create a slightly different sized file.
@@ -188,6 +197,6 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 
 const Resources = @import("resources.zig").Resources;
 const Resource = @import("resources.zig").Resource;
-//const write_file_bytes = @import("resources.zig").write_file_bytes;
+const Options = @import("resources.zig").Options;
 
 const wav = @import("wav.zig");

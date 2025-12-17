@@ -23,7 +23,7 @@ pub fn exportImage(
     resources: *Resources,
     bounded: Size,
     mode: ScaleMode,
-    image_type: Resource.Type,
+    image_type: FileType,
 ) (Allocator.Error || Resources.Error || error{ ExportsJpgOrPngOnly, ImageConversionError } || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.SeekError || std.Io.Reader.Error)![]const u8 {
     zstbi.init(allocator);
     defer zstbi.deinit();
@@ -448,6 +448,7 @@ const expectEqual = std.testing.expectEqual;
 
 const Resource = @import("resources.zig").Resource;
 const Resources = @import("resources.zig").Resources;
+const FileType = @import("file_type.zig").Type;
 const zstbi = @import("zstbi");
 const zigimg = @import("zigimg");
 const Image = zstbi.Image;

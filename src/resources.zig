@@ -49,7 +49,7 @@ pub const Resources = struct {
         mp3,
         js,
 
-        pub fn matches(self: SearchCategory, value: Resource.Type) bool {
+        pub fn matches(self: SearchCategory, value: FileType) bool {
             return switch (self) {
                 .any => true,
                 .audio => value == .wav or value == .ogg or value == .mp3,
@@ -248,7 +248,7 @@ pub const Resources = struct {
                     add_size = cache_size;
                 } else {
                     std.log.info("generating ogg for {s} wav. {s}", .{ name, uid });
-                    const processed = generate_ogg_audio(self.parent_allocator, resource, self) catch |f| {
+                    const processed = generate_ogg_audio(self.parent_allocator, resource, self, options) catch |f| {
                         err("generate_ogg_audio_failed. {any} Skipping {s}. {s}", .{ f, uid, resource.filename.? });
                         continue;
                     };
@@ -396,7 +396,7 @@ pub const Resources = struct {
     pub fn load_directory(
         self: *Resources,
         folder: []const u8,
-        filter: ?fn (name: []const u8, type: Resource.Type) bool,
+        filter: ?fn (name: []const u8, type: FileType) bool,
     ) (Error || error{
         OutOfMemory,
         Utf8InvalidStartByte,
@@ -751,7 +751,7 @@ pub const Resources = struct {
 /// Convert the extension of the file into an enum, and return both the
 /// extension and the name component of a filename. i.e `/etc/jay~info.wav`
 /// returns `.{ .name = "jay~info" .extension = .wav}`
-fn get_file_type(file: []const u8) struct { name: []const u8, extension: Resource.Type } {
+fn get_file_type(file: []const u8) struct { name: []const u8, extension: FileType } {
     const ext = read_extension(file);
     if (ext.len == 0)
         return .{ .name = file, .extension = .unknown };
@@ -766,7 +766,7 @@ fn get_file_type(file: []const u8) struct { name: []const u8, extension: Resourc
 
     return .{
         .name = full_name[cut..],
-        .extension = Resource.Type.parse(ext),
+        .extension = FileType.parse(ext),
     };
 }
 
@@ -804,7 +804,7 @@ inline fn append_if_not_found(
 pub const BundleResource = struct {
     uid: u64,
     size: u32,
-    type: Resource.Type,
+    type: FileType,
     names: []const []const u8,
     resource: *const Resource,
     cached: bool,
@@ -1211,6 +1211,7 @@ test "bundle" {
 pub const Options = struct {
     audio: AudioOption = .original,
     image: ImageOption = .original,
+    normalise_audio: bool = false,
     max_image_size: Size = .{ .width = 10000, .height = 10000 },
 
     pub const ImageOption = enum {
@@ -1246,6 +1247,8 @@ pub const random = @import("random.zig").random;
 pub const random_u64 = @import("random.zig").random_u64;
 pub const Resource = @import("resource.zig").Resource;
 pub const exportImage = @import("export_image.zig").exportImage;
+
+pub const FileType = @import("file_type.zig").Type;
 
 const Parser = @import("praxis").Parser;
 const BoundedArray = @import("praxis").BoundedArray;

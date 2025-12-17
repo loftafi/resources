@@ -31,7 +31,7 @@ pub const Engine = struct {
         allocator.destroy(engine);
     }
 
-    pub fn write(e: *Engine, w: anytype) (std.Io.Writer.Error)!void {
+    pub fn write(e: *Engine, w: anytype) (std.Io.Writer.Error || Allocator.Error || Error)!void {
         try e.wav.?.write(w, e);
     }
 

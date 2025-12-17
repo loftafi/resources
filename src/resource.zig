@@ -13,7 +13,7 @@ pub const Resource = struct {
     link: ?[]const u8,
     sentences: ArrayListUnmanaged([]const u8),
 
-    resource: Type,
+    resource: FileType,
 
     // on disk resource has a filename
     filename: ?[:0]u8 = null,
@@ -70,7 +70,7 @@ pub const Resource = struct {
         normalise: *const Normalize,
         filename: []const u8,
         file_name: []const u8,
-        file_type: Resource.Type,
+        file_type: FileType,
     ) (error{OutOfMemory} || Resources.Error || std.fs.File.StatError || std.fs.File.OpenError || std.fmt.BufPrintError)!void {
         if (filename.len > 0) self.filename = try arena.dupeZ(u8, filename);
 
@@ -209,8 +209,6 @@ pub const Resource = struct {
             }
         }
     }
-
-    pub const Type = @import("file_type.zig").Type;
 };
 
 fn is_whitespace(c: u8) bool {
@@ -432,6 +430,7 @@ pub const encode_uid = @import("base62.zig").encode;
 pub const decode_uid = @import("base62.zig").decode;
 
 const settings = @import("settings.zig");
+const FileType = @import("file_type.zig").Type;
 const Resources = @import("resources.zig").Resources;
 const Parser = @import("praxis").Parser;
 const load_file_bytes = @import("resources.zig").load_file_bytes;
