@@ -20,8 +20,6 @@ pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: 
         };
         defer audio.destroy(gpa);
         _ = audio.normalise(0.95);
-        _ = audio.normalise(0.95);
-        _ = audio.normalise(0.95);
         audio.faders();
         try audio.write(clean.writer(gpa));
 
