@@ -247,7 +247,7 @@ pub const Resources = struct {
                 if (try cache_has_file(cache_dir, name)) |cache_size| {
                     add_size = cache_size;
                 } else {
-                    std.log.info("generating ogg for {s} wav. {s}", .{ name, uid });
+                    std.log.info("generating ogg for {s} wav. {s} normalised={any}", .{ name, uid, options.normalise_audio });
                     const processed = generate_ogg_audio(self.parent_allocator, resource, self, options) catch |f| {
                         err("generate_ogg_audio_failed. {any} Skipping {s}. {s}", .{ f, uid, resource.filename.? });
                         continue;

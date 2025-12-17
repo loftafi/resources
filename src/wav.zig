@@ -39,7 +39,7 @@ pub const Engine = struct {
         engine.values.clearRetainingCapacity();
     }
 
-    pub fn ingest(e: *Engine, allocator: Allocator, n: f64) Allocator.Error!void {
+    pub inline fn ingest(e: *Engine, allocator: Allocator, n: f64) Allocator.Error!void {
         try e.values.append(allocator, @floatCast(n));
         e.max = @max(e.max, @abs(n));
     }
@@ -75,27 +75,39 @@ pub const Engine = struct {
     /// sound file is almost silent for the entire time, normalisation is
     /// refused because we dont want to turn up the volume on static background
     /// noise.
-    pub fn normalise(e: *Engine, peak: f64) void {
+    pub fn normalise(e: *Engine, peak: f64) f64 {
         if (e.values.items.len == 0) {
-            debug("cant normalise empty file", .{});
-            return;
+            err("cant normalise empty file", .{});
+            return 0;
         }
 
-        if (peak > 1.0 or peak < -1.0)
+        if (peak > 1.0 or peak < -1.0) {
             err("invalid normalisation size", .{});
+            return 0;
+        }
 
         if (e.max < 0.03) {
-            info("audio data is effectively silent. Abort normalisaiton. (peak={d}%)\n", .{e.max * 100});
-            return;
+            warn("audio data is effectively silent. Abort normalisaiton. (peak={d}%)\n", .{e.max * 100});
+            return 0;
         }
 
         const scale = peak / e.max;
-        debug("max: {d} peak: {d} scale: {d}\n", .{ e.max, peak, scale });
+
+        if (scale < 1.01 and scale > 0.99) {
+            debug("audio data does not need scaling. Abort normalisaiton. (peak={d}%, scale={d})\n", .{ e.max * 100, scale });
+            return 1;
+        }
+
+        //err("normalise. max: {d} peak: {d} scale: {d}\n", .{ e.max, peak, scale });
         if (scale > 1.0) debug("scaling up", .{}) else debug("scaling down", .{});
 
+        e.max = 0;
         for (e.values.items) |*value| {
             value.* = value.* * scale;
+            e.max = @max(e.max, @abs(value.*));
         }
+
+        return scale;
     }
 };
 
@@ -423,7 +435,9 @@ test "read_wav_32_mono" {
     }
 
     {
-        e.normalise(0.90);
+        const scale = e.normalise(0.90);
+        try expectApproxEqAbs(4.02, scale, 0.01);
+        try expectApproxEqAbs(1, e.normalise(0.9), 0.01);
         e.faders();
         var out3 = std.ArrayListUnmanaged(u8).empty;
         defer out3.deinit(allocator);
@@ -445,7 +459,9 @@ test "read_wav_32_stereo" {
     defer e.destroy(allocator);
     try expectEqual(2, e.channels);
     try expectEqual(44100, e.sample_rate);
-    e.normalise(0.90);
+    const scale = e.normalise(0.90);
+    try expectApproxEqAbs(0.62, scale, 0.01);
+    try expectApproxEqAbs(1, e.normalise(0.9), 0.01);
     e.faders();
 
     // Output the simple wave file. Unused headers will not be emitted.
@@ -487,7 +503,9 @@ test "fader_test" {
     defer e.destroy(gpa);
     try expectEqual(2, e.channels);
     try expectEqual(44100, e.sample_rate);
-    e.normalise(0.90);
+    const scale = e.normalise(0.90);
+    try expectApproxEqAbs(1.11, scale, 0.01);
+    try expectApproxEqAbs(1, e.normalise(0.9), 0.01);
     e.faders();
 
     // Output the simple wave file. Unused headers will not be emitted.
@@ -502,8 +520,10 @@ test "fader_test" {
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const expectApproxEqAbs = std.testing.expectApproxEqAbs;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const debug = std.log.debug;
-const err = std.log.err;
 const info = std.log.info;
+const warn = std.log.warn;
+const err = std.log.err;

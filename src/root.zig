@@ -4,6 +4,7 @@ pub const Size = @import("resources.zig").Size;
 pub const ScaleMode = @import("resources.zig").ScaleMode;
 pub const Setting = @import("resources.zig").Setting;
 pub const UniqueWords = @import("resources.zig").UniqueWords;
+pub const FileType = @import("file_type.zig").Type;
 
 pub const seed = @import("resources.zig").seed;
 pub const random = @import("resources.zig").random;

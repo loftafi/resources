@@ -18,10 +18,11 @@ pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: 
             err("Failed to import wav data for {d}. Error:{any}", .{ resource.uid, f });
             return f;
         };
-        audio.normalise(0.95);
-        audio.faders();
         defer audio.destroy(gpa);
-
+        _ = audio.normalise(0.95);
+        _ = audio.normalise(0.95);
+        _ = audio.normalise(0.95);
+        audio.faders();
         try audio.write(clean.writer(gpa));
 
         gpa.free(data);
