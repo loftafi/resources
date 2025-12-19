@@ -81,6 +81,7 @@ pub fn exportImage(
         .cover => fill(size, bounded),
     };
     if (target) |new_size| {
+        //debug("resize {d}x{d} to {d}x{d}", .{ img.width, img.height, new_size.width, new_size.height });
         const new_img = img.resize(
             new_size.width,
             new_size.height,

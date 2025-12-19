@@ -710,11 +710,11 @@ pub const Resources = struct {
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(allocator);
-        try self.lookup(sentence, category, false, &results, allocator);
-        if (results.items.len > 0)
-            return results.items[0];
 
-        return null;
+        try self.lookup(sentence, category, false, &results, allocator);
+        if (results.items.len == 0) return null;
+
+        return results.items[random(results.items.len)];
     }
 
     // Read the binary data of the requested resource. Depending on
