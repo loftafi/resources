@@ -1248,7 +1248,7 @@ pub const random_u64 = @import("random.zig").random_u64;
 pub const Resource = @import("resource.zig").Resource;
 pub const exportImage = @import("export_image.zig").exportImage;
 
-pub const FileType = @import("file_type.zig").Type;
+pub const FileType = @import("root.zig").FileType;
 
 const Parser = @import("praxis").Parser;
 const BoundedArray = @import("praxis").BoundedArray;

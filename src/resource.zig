@@ -430,7 +430,7 @@ pub const encode_uid = @import("base62.zig").encode;
 pub const decode_uid = @import("base62.zig").decode;
 
 const settings = @import("settings.zig");
-const FileType = @import("file_type.zig").Type;
+const FileType = @import("root.zig").FileType;
 const Resources = @import("resources.zig").Resources;
 const Parser = @import("praxis").Parser;
 const load_file_bytes = @import("resources.zig").load_file_bytes;

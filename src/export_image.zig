@@ -449,7 +449,7 @@ const expectEqual = std.testing.expectEqual;
 
 const Resource = @import("resources.zig").Resource;
 const Resources = @import("resources.zig").Resources;
-const FileType = @import("file_type.zig").Type;
+const FileType = @import("root.zig").FileType;
 const zstbi = @import("zstbi");
 const zigimg = @import("zigimg");
 const Image = zstbi.Image;
