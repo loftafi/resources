@@ -624,8 +624,8 @@ pub const Resources = struct {
         // Normalise to nfc and normalise the characters with index rules.
         const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
         defer sentence_nfc.deinit(self.parent_allocator);
-        var unaccented = BoundedArray(u8, max_word_size + 1){};
-        var normalised = BoundedArray(u8, max_word_size + 1){};
+        var unaccented = BoundedArray(u8, max_word_size){};
+        var normalised = BoundedArray(u8, max_word_size){};
         normalise_word(sentence_nfc.slice, &unaccented, &normalised) catch |f| {
             if (f == error.EmptyWord) return error.QueryEmpty;
             if (f == error.WordTooLong) return error.QueryTooLong;
@@ -1254,7 +1254,7 @@ const Parser = @import("praxis").Parser;
 const BoundedArray = @import("praxis").BoundedArray;
 const SearchIndex = @import("praxis").SearchIndex;
 const normalise_word = @import("praxis").normalise_word;
-const max_word_size = @import("praxis").MAX_WORD_SIZE;
+const max_word_size = @import("praxis").max_word_size;
 
 const generate_ogg_audio = @import("export_audio.zig").generate_ogg_audio;
 const Size = @import("export_image.zig").Size;
