@@ -706,15 +706,24 @@ pub const Resources = struct {
         category: SearchCategory,
         allocator: Allocator,
     ) (error{OutOfMemory} || Error)!?*Resource {
-        if (sentence.len == 0) return null;
+        if (sentence.len == 0) {
+            debug("lookupOne() called with empty sentence.", .{});
+            return null;
+        }
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(allocator);
 
         try self.lookup(sentence, category, false, &results, allocator);
-        if (results.items.len == 0) return null;
+        if (results.items.len == 0) {
+            debug("lookupOne() found no results.", .{});
+            return null;
+        }
 
-        return results.items[random(results.items.len)];
+        const choose = random(results.items.len);
+        debug("lookup {s} choosing {d} of {d} items", .{ sentence, choose, results.items.len });
+
+        return results.items[choose];
     }
 
     // Read the binary data of the requested resource. Depending on
