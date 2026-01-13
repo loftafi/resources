@@ -716,12 +716,18 @@ pub const Resources = struct {
 
         try self.lookup(sentence, category, false, &results, allocator);
         if (results.items.len == 0) {
-            debug("lookupOne() found no results.", .{});
+            debug("lookupOne() name='{s}' found no results.", .{
+                sentence,
+            });
             return null;
         }
 
         const choose = random(results.items.len);
-        debug("lookup {s} choosing {d} of {d} items", .{ sentence, choose, results.items.len });
+        //debug("lookupOne() name='{s}' choosing resource {d} of {d}.", .{
+        //    sentence,
+        //    choose,
+        //    results.items.len,
+        //});
 
         return results.items[choose];
     }
