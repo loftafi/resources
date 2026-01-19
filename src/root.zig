@@ -11,3 +11,5 @@ pub const random = @import("resources.zig").random;
 pub const random_u64 = @import("resources.zig").random_u64;
 pub const encode_uid = @import("resource.zig").encode_uid;
 pub const dencode_uid = @import("resource.zig").decode_uid;
+pub const encode_writer = @import("base62.zig").encode_writer;
+pub const uid_writer = @import("base62.zig").uid_writer;

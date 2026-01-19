@@ -1276,6 +1276,7 @@ const Size = @import("export_image.zig").Size;
 
 const encode = @import("base62.zig").encode;
 const decode = @import("base62.zig").decode;
+const uid_writer = @import("base62.zig").encode_writer;
 const BinaryReader = @import("binary_reader.zig");
 const BinaryWriter = @import("binary_writer.zig");
 const append_u64 = BinaryWriter.append_u64;

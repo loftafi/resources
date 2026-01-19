@@ -42,7 +42,7 @@ pub fn encode(comptime I: type, uid: I, result: *[40:0]u8) []const u8 {
 
 pub fn encode_writer(comptime I: type, uid: I) type {
     return struct {
-        pub inline fn format(_: @This(), out: *std.Io.Writer) std.Io.Writer.Error!void {
+        pub fn format(_: @This(), out: *Writer) Writer.Error!void {
             var value: I = uid;
 
             if (uid == 0) {
@@ -62,6 +62,32 @@ pub fn encode_writer(comptime I: type, uid: I) type {
             }
         }
     };
+}
+
+pub fn uid_writer(comptime I: type, uid: I) struct {
+    uid: I,
+
+    pub fn format(self: *const @This(), out: *Writer) Writer.Error!void {
+        var value: I = self.uid;
+
+        if (self.uid == 0) {
+            try out.writeByte('A');
+            return;
+        }
+        while (value > 0) {
+            const r = @rem(value, 62);
+            value = @divFloor(value, 62);
+            if (r < 26) {
+                try out.writeByte('A' + @as(u8, @intCast(r)));
+            } else if (r < 52) {
+                try out.writeByte('a' + (@as(u8, @intCast(r)) - 26));
+            } else {
+                try out.writeByte('0' + (@as(u8, @intCast(r)) - 52));
+            }
+        }
+    }
+} {
+    return .{ .uid = uid };
 }
 
 /// Convert a base62 encoded string back to an integer.
@@ -100,6 +126,7 @@ pub fn decode(comptime I: type, text: []const u8) error{
 }
 
 const std = @import("std");
+const Writer = std.Io.Writer;
 const eq = std.testing.expectEqual;
 const seq = std.testing.expectEqualStrings;
 
