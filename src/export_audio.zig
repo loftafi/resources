@@ -35,6 +35,7 @@ pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: 
             ffmpeg_binary = "/opt/homebrew/bin/ffmpeg";
         } else |_| {}
         if (ffmpeg_binary == null) {
+            err("ffmpeg not found in '/usr/bin/' or '/opt/homebrew/bin'", .{});
             return error.FfmpegFailure;
         }
         debug("Found ffmpeg in {s}", .{ffmpeg_binary.?});
@@ -56,9 +57,9 @@ pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: 
     };
 
     if (resource.filename) |fl| {
-        std.log.info("ffmpeg starting with file {s} (sending {d} bytes)", .{ fl, data.len });
+        info("ffmpeg starting with file {s} (sending {d} bytes)", .{ fl, data.len });
     } else {
-        std.log.info("ffmpeg starting (sending {d} bytes)", .{data.len});
+        info("ffmpeg starting (sending {d} bytes)", .{data.len});
     }
     var ffmpeg = std.process.Child.init(&argv, gpa);
     ffmpeg.stdin_behavior = .Pipe;
@@ -66,7 +67,7 @@ pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: 
     ffmpeg.stderr_behavior = .Pipe;
 
     ffmpeg.spawn() catch |f| {
-        std.log.err("Error spawning ffmpeg process for {d}. Error:{any}", .{ resource.uid, f });
+        err("Error spawning ffmpeg process for {d}. Error:{any}", .{ resource.uid, f });
         return error.FfmpegFailure;
     };
 
@@ -80,7 +81,7 @@ pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: 
     try send_data(gpa, &ffmpeg, data, &stdout, &stderr, max_audio_file_size);
 
     const result = ffmpeg.wait() catch |f| {
-        std.log.err("Error waiting ffmpeg process for {d}. Error:{any}", .{ resource.uid, f });
+        err("Error waiting ffmpeg process for {f}. Error:{any}", .{ uid_writer(u64, resource.uid), f });
         return error.FfmpegFailure;
     };
 
@@ -187,6 +188,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const assert = std.debug.assert;
+const info = std.log.info;
 const debug = std.log.debug;
 const err = std.log.err;
 
@@ -197,5 +199,6 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 const Resources = @import("resources.zig").Resources;
 const Resource = @import("resources.zig").Resource;
 const Options = @import("resources.zig").Options;
+const uid_writer = @import("base62.zig").uid_writer;
 
 const wav = @import("wav.zig");
