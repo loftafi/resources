@@ -113,22 +113,24 @@ pub fn add_imports(
             }) });
         },
         .linux => {
-            // When building for android, we need to use the android linux headers
-            if (FindNDK.find(b.allocator)) |android_ndk| {
-                const ndk_location = android_ndk.realpathAlloc(b.allocator, ".") catch {
-                    @panic("printing ndk path failed");
-                };
-                defer b.allocator.free(ndk_location);
-                lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
-                    ndk_location,
-                    "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/",
-                }) });
-                lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
-                    ndk_location,
-                    "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/aarch64-linux-android/",
-                }) });
-            } else {
-                @panic("android/linux build requires ndk. Set ANDROID_NDK_HOME");
+            if (target.result.abi.isAndroid()) {
+                // When building for android, we need to use the android linux headers
+                if (FindNDK.find(b.allocator)) |android_ndk| {
+                    const ndk_location = android_ndk.realpathAlloc(b.allocator, ".") catch {
+                        @panic("printing ndk path failed");
+                    };
+                    defer b.allocator.free(ndk_location);
+                    lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
+                        ndk_location,
+                        "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/",
+                    }) });
+                    lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
+                        ndk_location,
+                        "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/aarch64-linux-android/",
+                    }) });
+                } else {
+                    @panic("android/linux build requires ndk. Set ANDROID_NDK_HOME");
+                }
             }
         },
         else => {
