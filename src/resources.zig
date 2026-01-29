@@ -396,7 +396,7 @@ pub const Resources = struct {
     pub fn load_directory(
         self: *Resources,
         folder: []const u8,
-        filter: ?fn (name: []const u8, type: FileType) bool,
+        filter: ?*const fn (name: []const u8, type: FileType) bool,
     ) (Error || error{
         OutOfMemory,
         Utf8InvalidStartByte,
