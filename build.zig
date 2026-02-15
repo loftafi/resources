@@ -114,12 +114,14 @@ pub fn add_imports(
         },
         .linux => {
             if (target.result.abi.isAndroid()) {
+                var buffer: [99000]u8 = undefined;
                 // When building for android, we need to use the android linux headers
                 if (FindNDK.find(b)) |android_ndk| {
-                    const ndk_location = android_ndk.realpathAlloc(b.allocator, ".") catch {
+                    const ndk_location_len = android_ndk.realPath(b.graph.io, &buffer) catch {
                         @panic("printing ndk path failed");
                     };
-                    defer b.allocator.free(ndk_location);
+                    const ndk_location = buffer[0..ndk_location_len];
+                    std.log.debug("Full path to ndk is {s}", .{ndk_location});
                     lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
                         ndk_location,
                         "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/",

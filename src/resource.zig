@@ -67,11 +67,12 @@ pub const Resource = struct {
         self: *Resource,
         gpa: Allocator,
         arena: Allocator,
+        io: std.Io,
         normalise: *const Normalize,
         filename: []const u8,
         file_name: []const u8,
         file_type: FileType,
-    ) (error{OutOfMemory} || Resources.Error || std.fs.File.StatError || std.fs.File.OpenError || std.fmt.BufPrintError)!void {
+    ) (error{OutOfMemory} || Resources.Error || std.Io.File.StatError || std.Io.File.OpenError || std.fmt.BufPrintError)!void {
         if (filename.len > 0) self.filename = try arena.dupeZ(u8, filename);
 
         self.resource = file_type;
@@ -90,12 +91,12 @@ pub const Resource = struct {
         // Check if there is a metadata file to load.
         var buf: [max_filename_length]u8 = undefined;
         const metadata_file = std.fmt.bufPrint(&buf, "{s}.txt", .{remove_extension(filename)}) catch return error.FilenameTooLong;
-        const data = load_file_bytes(gpa, metadata_file) catch |e| {
+        const data = load_file_bytes(gpa, io, metadata_file) catch |e| {
             if (e == error.FileNotFound) {
                 // If no metadata file exists, default to visible
                 self.visible = true;
                 if (self.uid == 0 and file_type == .wav) {
-                    self.uid = try hash_uid(file_name, filename);
+                    self.uid = try hash_uid(io, file_name, filename);
                 }
                 return;
             } else {
@@ -108,7 +109,7 @@ pub const Resource = struct {
 
         if (data.len != data_nfc.slice.len) {
             warn("metadata file {s} is not nfc.", .{metadata_file});
-            write_file_bytes(gpa, filename, data_nfc.slice) catch {
+            write_file_bytes(gpa, io, filename, data_nfc.slice) catch {
                 warn("update metadata file {s} to nfc failed.", .{metadata_file});
             };
         }
@@ -118,9 +119,9 @@ pub const Resource = struct {
 
     /// Form a uid from the name of the file and the size of the file. Not
     /// perfect, but it is faster than continually hashing entire files
-    pub fn hash_uid(name: []const u8, path_name: []const u8) (std.fs.File.StatError || std.fs.File.OpenError)!u64 {
+    pub fn hash_uid(io: std.Io, name: []const u8, path_name: []const u8) (std.Io.File.StatError || std.Io.File.OpenError)!u64 {
         var buff: [40]u8 = undefined;
-        const stat = try std.fs.cwd().statFile(path_name);
+        const stat = try std.Io.Dir.cwd().statFile(io, path_name, .{ .follow_symlinks = false });
         const size_info = try std.fmt.bufPrint(&buff, "{d}", .{stat.size});
         var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
         sha256.update(name);

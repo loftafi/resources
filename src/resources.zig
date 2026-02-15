@@ -73,7 +73,22 @@ pub const Resources = struct {
         }
     };
 
-    pub const Error = error{ FailedReadingRepo, ReadRepoFileFailed, ReadMetadataFailed, InvalidResourceUID, MetadataMissing, FilenameTooLong, ResourceHasNoFilename, QueryTooLong, QueryEmpty, QueryEncodingError, InvalidBundleFile, BundleTooShortToExtractFile, UnknownImageOrientation, ImageConversionError };
+    pub const Error = error{
+        FailedReadingRepo,
+        ReadRepoFileFailed,
+        ReadMetadataFailed,
+        InvalidResourceUID,
+        MetadataMissing,
+        FilenameTooLong,
+        ResourceHasNoFilename,
+        QueryTooLong,
+        QueryEmpty,
+        QueryEncodingError,
+        InvalidBundleFile,
+        BundleTooShortToExtractFile,
+        UnknownImageOrientation,
+        ImageConversionError,
+    };
 
     pub fn create(parent_allocator: Allocator) error{OutOfMemory}!*Resources {
         var arena = try parent_allocator.create(std.heap.ArenaAllocator);
@@ -96,6 +111,8 @@ pub const Resources = struct {
             .bundle_file = "",
             .used_resource_list = .empty,
         };
+
+        seed();
 
         return resources;
     }
@@ -135,14 +152,18 @@ pub const Resources = struct {
     // function should be called before calling `load_directory`. To ignore
     // some files in the source folder, implement a filter function that
     // returns true if a file name or type should be skipped.
-    pub fn load_bundle(self: *Resources, bundle_filename: []const u8) (Allocator.Error || std.fs.File.OpenError || Error || std.fs.File.ReadError || std.io.Reader.Error)!void {
+    pub fn load_bundle(
+        self: *Resources,
+        io: std.Io,
+        bundle_filename: []const u8,
+    ) (Allocator.Error || std.Io.File.OpenError || Error || std.Io.Reader.Error || std.Io.Reader.Error)!void {
         var buffer: [300:0]u8 = undefined;
         var rbuffer: [4196:0]u8 = undefined;
         const e = std.builtin.Endian.little;
 
-        var file = try std.fs.cwd().openFile(bundle_filename, .{});
-        defer file.close();
-        var rb = file.reader(&rbuffer);
+        var file = try std.Io.Dir.cwd().openFile(io, bundle_filename, .{});
+        defer file.close(io);
+        var rb = file.reader(io, &rbuffer);
         const b1 = try rb.interface.takeInt(u8, e);
         const b2 = try rb.interface.takeInt(u8, e);
         const b3 = try rb.interface.takeInt(u8, e);
@@ -201,8 +222,15 @@ pub const Resources = struct {
 
     // Save the `manifest` list of resources into a single data data file
     // with a table of contents.
-    pub fn save_bundle(self: *Resources, filename: []const u8, manifest: []*const Resource, options: Options, cache: []const u8) (Allocator.Error || Resources.Error || std.fs.File.OpenError || std.fs.File.WriteError || std.Io.Writer.Error || std.Io.Reader.Error || std.fs.File.SeekError || std.fs.File.ReadError || std.fs.Dir.OpenError || std.fs.Dir.RenameError)!void {
-        const cache_dir = std.fs.openDirAbsolute(cache, .{ .iterate = false }) catch |f| {
+    pub fn save_bundle(
+        self: *Resources,
+        io: std.Io,
+        filename: []const u8,
+        manifest: []*const Resource,
+        options: Options,
+        cache: []const u8,
+    ) (Allocator.Error || Resources.Error || std.Io.File.OpenError || std.Io.Writer.Error || std.Io.Writer.Error || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.Error || std.Io.Dir.OpenError || std.Io.Dir.RenameError)!void {
+        const cache_dir = std.Io.Dir.openDirAbsolute(io, cache, .{ .iterate = false }) catch |f| {
             err("Failed to access cache folder: {s} {any}", .{ cache, f });
             return f;
         };
@@ -228,13 +256,13 @@ pub const Resources = struct {
                 continue;
             }
 
-            const file = std.fs.cwd().openFile(resource.filename.?, .{ .mode = .read_only }) catch |e| {
+            const file = std.Io.Dir.cwd().openFile(io, resource.filename.?, .{ .mode = .read_only }) catch |e| {
                 err("Repo file missing: {s}", .{uid});
                 return e;
             };
-            defer file.close();
+            defer file.close(io);
 
-            const stat = try file.stat();
+            const stat = try file.stat(io);
             var add_size = stat.size;
             var add_type = resource.resource;
             var add_cache = false;
@@ -254,7 +282,7 @@ pub const Resources = struct {
                     };
                     std.log.info("generated ogg for {s} wav. {s} size={d}", .{ name, uid, processed.len });
                     defer self.parent_allocator.free(processed);
-                    try write_folder_file_bytes(self.parent_allocator, cache_dir, name, processed);
+                    try write_folder_file_bytes(cache_dir, name, processed);
                     add_size = processed.len;
                 }
                 add_cache = true;
@@ -267,13 +295,20 @@ pub const Resources = struct {
                 if (try cache_has_file(cache_dir, name)) |cache_size| {
                     add_size = cache_size;
                 } else {
-                    const processed = exportImage(self.parent_allocator, resource, self, .{ .width = 800, .height = 800 }, .fill, .jpg) catch |f| {
+                    const processed = exportImage(
+                        self.parent_allocator,
+                        resource,
+                        self,
+                        .{ .width = 800, .height = 800 },
+                        .fill,
+                        .jpg,
+                    ) catch |f| {
                         err("exportImage. {any}  {s}", .{ f, uid });
                         continue;
                     };
                     defer self.parent_allocator.free(processed);
                     debug("generated jpg {s} for {t} ({d} to {d} bytes)", .{ filename, resource.resource, stat.size, processed.len });
-                    try write_folder_file_bytes(self.parent_allocator, cache_dir, name, processed);
+                    try write_folder_file_bytes(cache_dir, name, processed);
                     add_size = processed.len;
                 }
                 add_cache = true;
@@ -355,7 +390,7 @@ pub const Resources = struct {
             try append_u64(&header, header_size + item.file_index, self.parent_allocator);
         }
 
-        const output = std.fs.cwd().createFile(filename, .{ .truncate = true }) catch |e| {
+        const output = std.Io.Dir.cwd().createFile(filename, .{ .truncate = true }) catch |e| {
             err("Failed to create repo bundle file: {s} {any}", .{ filename, e });
             return e;
         };
@@ -370,7 +405,7 @@ pub const Resources = struct {
                 const cache_name = try std.fmt.bufPrint(&buff2, "{s}.{s}", .{ uid, item.type.extension() });
                 data = try load_folder_file_bytes(self.parent_allocator, cache_dir, cache_name);
             } else {
-                data = try self.read_data(item.resource, self.parent_allocator);
+                data = try self.read_data(io, self.parent_allocator, item.resource);
             }
             defer self.parent_allocator.free(data);
             if (data.len != item.size) {
@@ -395,6 +430,7 @@ pub const Resources = struct {
     // calling `load_directory`.
     pub fn load_directory(
         self: *Resources,
+        io: std.Io,
         folder: []const u8,
         filter: ?*const fn (name: []const u8, type: FileType) bool,
     ) (Error || error{
@@ -404,12 +440,12 @@ pub const Resources = struct {
         Utf8OverlongEncoding,
         Utf8EncodesSurrogateHalf,
         Utf8CodepointTooLarge,
-    } || std.fs.File.OpenError || std.fs.File.StatError || std.fmt.BufPrintError)!bool {
-        var dir = std.fs.cwd().openDir(folder, .{ .iterate = true }) catch |e| {
+    } || std.Io.File.OpenError || std.Io.File.StatError || std.fmt.BufPrintError)!bool {
+        var dir = std.Io.Dir.cwd().openDir(io, folder, .{ .iterate = true }) catch |e| {
             log.warn("Load directory {s} failed. Error: {any}", .{ folder, e });
             return false;
         };
-        defer dir.close();
+        defer dir.close(io);
 
         self.folder = try self.arena_allocator.dupeZ(u8, folder);
 
@@ -417,7 +453,7 @@ pub const Resources = struct {
         defer filename.deinit(self.parent_allocator);
 
         var i = dir.iterate();
-        while (i.next() catch return error.ReadRepoFileFailed) |file| {
+        while (i.next(io) catch return error.ReadRepoFileFailed) |file| {
             if (file.kind != .file) continue;
 
             const file_info = get_file_type(file.name);
@@ -461,6 +497,7 @@ pub const Resources = struct {
             try resource.load(
                 self.parent_allocator,
                 self.arena_allocator,
+                io,
                 &self.normalise,
                 filename.items,
                 file_info.name,
@@ -468,7 +505,7 @@ pub const Resources = struct {
             );
             if (resource.uid == 0) {
                 warn("Assigning random uid to file. {s}", .{file.name});
-                resource.uid = try self.unique_random_u64();
+                resource.uid = try self.unique_random_u64(io);
             }
 
             if (!resource.visible) {
@@ -552,13 +589,13 @@ pub const Resources = struct {
     /// Repeatedly generate a uid until we find a uid that does not exist
     /// in the repo folder. The chance of the random uid generator conflicting
     /// is low, but possible.
-    fn unique_random_u64(self: *Resources) error{ReadMetadataFailed}!u64 {
+    fn unique_random_u64(self: *Resources, io: std.Io) error{ReadMetadataFailed}!u64 {
         var retry: usize = 0;
-        var dir = std.fs.cwd().openDir(self.folder, .{}) catch |e| {
+        var dir = std.Io.Dir.cwd().openDir(io, self.folder, .{}) catch |e| {
             log.warn("Resource loader failed opening {s}. Error: {any}", .{ self.folder, e });
             return error.ReadMetadataFailed;
         };
-        defer dir.close();
+        defer dir.close(io);
         var ubuffer: [40:0]u8 = undefined; // 40 for UID, more for file extension
         var buffer: [50:0]u8 = undefined; // 40 for UID, more for file extension
         while (true) {
@@ -568,7 +605,7 @@ pub const Resources = struct {
                 log.warn("unique_random_u64 has unexpected exception: {any}", .{e});
                 unreachable;
             };
-            _ = dir.statFile(filename) catch |e| {
+            _ = dir.statFile(io, filename, .{ .follow_symlinks = false }) catch |e| {
                 if (e == error.FileNotFound) {
                     return uid;
                 }
@@ -737,15 +774,16 @@ pub const Resources = struct {
     // from a resource bundle.
     pub fn read_data(
         self: *Resources,
-        resource: *const Resource,
         allocator: Allocator,
-    ) (Resources.Error || Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.SeekError || std.Io.Reader.Error)![]const u8 {
+        io: std.Io,
+        resource: *const Resource,
+    ) (Resources.Error || Allocator.Error || std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.Error)![]const u8 {
         if (self.used_resource_list) |*manifest| {
             try manifest.append(self.arena_allocator, resource);
         }
         if (resource.filename) |filename| {
             // Resource has a filename, read a file.
-            const data = load_file_bytes(allocator, filename) catch |e| {
+            const data = load_file_bytes(allocator, io, filename) catch |e| {
                 return e;
             };
             return data;
@@ -754,6 +792,7 @@ pub const Resources = struct {
             // Resource has an offset pointer into a bundle, read the bundle.
             return try load_file_byte_slice(
                 allocator,
+                io,
                 self.bundle_file,
                 bundle_offset,
                 resource.size,
@@ -862,67 +901,96 @@ pub fn sentence_trim(sentence: []const u8) ?[]const u8 {
     return trimmed;
 }
 
-pub fn write_file_bytes(gpa: Allocator, filename: []const u8, data: []const u8) (Allocator.Error || std.Io.Writer.Error || std.fs.File.WriteError || std.fs.File.OpenError || std.fs.Dir.RenameError)!void {
-    const tmp_filename = try std.fmt.allocPrint(gpa, "{s}.{d}", .{ filename, std.time.milliTimestamp() });
-    const file = std.fs.cwd().createFile(tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
+pub fn write_file_bytes(
+    io: std.Io,
+    filename: []const u8,
+    data: []const u8,
+) (Allocator.Error || std.Io.Writer.Error || std.Io.Writer.Error || std.Io.File.OpenError || std.Io.Dir.RenameError)!void {
+    const buffer: [16]u8 = undefined;
+    const tmp_filename = random_string(&buffer);
+    const file = std.Io.Dir.cwd().createFile(tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
         err(
             "Failed to open file for writing: {s}. {any}",
             .{ filename, e },
         );
         return e;
     };
-    defer file.close();
+    defer file.close(io);
     try file.writeAll(data);
-    try std.fs.cwd().rename(tmp_filename, filename);
+    try std.Io.Dir.cwd().rename(tmp_filename, filename);
 }
 
-pub fn write_folder_file_bytes(gpa: Allocator, folder: std.fs.Dir, filename: []const u8, data: []const u8) (Allocator.Error || std.Io.Writer.Error || std.fs.File.WriteError || std.fs.File.OpenError || std.fs.Dir.RenameError)!void {
-    const tmp_filename = try std.fmt.allocPrint(gpa, "{s}.{d}", .{ filename, std.time.milliTimestamp() });
-    const file = folder.createFile(tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
+pub fn write_folder_file_bytes(
+    io: std.Io,
+    folder: std.Io.Dir,
+    filename: []const u8,
+    data: []const u8,
+) (Allocator.Error || std.Io.Writer.Error || std.Io.Writer.Error || std.Io.File.OpenError || std.Io.Dir.RenameError)!void {
+    const buffer: [16]u8 = undefined;
+    const tmp_filename = random_string(&buffer);
+    const file = folder.createFile(io, tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
         err("Failed to open file for writing: {s}. {any}", .{ filename, e });
         return e;
     };
-    defer file.close();
+    defer file.close(io);
     try file.writeAll(data);
-    //std.log.info("rename {s} to {s}", .{ tmp_filename, filename });
     try folder.rename(tmp_filename, filename);
 }
 
-pub fn cache_has_file(folder: std.fs.Dir, filename: []const u8) (std.fs.File.StatError || std.fs.Dir.StatFileError)!?usize {
-    const stat = folder.statFile(filename) catch |f| {
+pub fn cache_has_file(
+    io: std.Io,
+    folder: std.Io.Dir,
+    filename: []const u8,
+) (std.Io.File.StatError || std.Io.Dir.StatFileError)!?usize {
+    const stat = folder.statFile(io, filename, .{ .follow_symlinks = false }) catch |f| {
         if (f == error.FileNotFound) return null;
         return f;
     };
     return stat.size;
 }
 
-pub fn load_file_bytes(allocator: Allocator, filename: []const u8) (Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError)![]u8 {
-    const file = std.fs.cwd().openFile(filename, .{ .mode = .read_only }) catch |e| {
+pub fn load_file_bytes(
+    allocator: Allocator,
+    io: std.Io,
+    filename: []const u8,
+) (Allocator.Error || std.Io.File.OpenError || std.Io.Reader.Error)![]u8 {
+    const file = std.Io.Dir.cwd().openFile(io, filename, .{ .mode = .read_only }) catch |e| {
         if (!std.ascii.endsWithIgnoreCase(filename, ".txt"))
             log.debug("load_file_bytes failed to read file: {s}  {any}", .{ filename, e });
         return e;
     };
-    defer file.close();
-    const stat = try file.stat();
+    defer file.close(io);
+    const stat = try file.stat(io);
     return try file.readToEndAlloc(allocator, stat.size);
 }
 
-pub fn load_folder_file_bytes(allocator: Allocator, folder: std.fs.Dir, filename: []const u8) (Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError)![]u8 {
-    const file = folder.openFile(filename, .{ .mode = .read_only }) catch |e| {
+pub fn load_folder_file_bytes(
+    allocator: Allocator,
+    io: std.Io,
+    folder: std.Io.Dir,
+    filename: []const u8,
+) (Allocator.Error || std.Io.File.OpenError || std.Io.Reader.Error)![]u8 {
+    const file = folder.openFile(io, filename, .{ .mode = .read_only }) catch |e| {
         return e;
     };
-    defer file.close();
-    const stat = try file.stat();
+    defer file.close(io);
+    const stat = try file.stat(io);
     return try file.readToEndAlloc(allocator, stat.size);
 }
 
-fn load_file_byte_slice(allocator: Allocator, filename: []const u8, offset: usize, size: usize) (Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.StatError || std.fs.File.SeekError || Resources.Error)![]u8 {
-    const file = std.fs.cwd().openFile(filename, .{ .mode = .read_only }) catch |e| {
+fn load_file_byte_slice(
+    allocator: Allocator,
+    io: std.Io,
+    filename: []const u8,
+    offset: usize,
+    size: usize,
+) (Allocator.Error || std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.StatError || std.Io.File.SeekError || Resources.Error)![]u8 {
+    const file = std.Io.Dir.cwd().openFile(io, filename, .{ .mode = .read_only }) catch |e| {
         err("Repo file missing: {s}", .{filename});
         return e;
     };
-    defer file.close();
-    const stat = try file.stat();
+    defer file.close(io);
+    const stat = try file.stat(io);
     if (stat.size < offset + size) {
         return error.BundleTooShortToExtractFile;
     }
@@ -982,13 +1050,14 @@ test "read resource info space" {
 
 test "load_resource image" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var resources = try Resources.create(gpa);
     defer resources.destroy();
 
     const file = "./test/repo/GzeBWE.png";
     const info = get_file_type(file);
     var resource: Resource = .empty;
-    try resource.load(std.testing.allocator, std.testing.allocator, &resources.normalise, file, info.name, info.extension);
+    try resource.load(std.testing.allocator, std.testing.allocator, io, &resources.normalise, file, info.name, info.extension);
     defer resource.deinit(std.testing.allocator);
 
     try expectEqual(3989967536, resource.uid);
@@ -1004,6 +1073,7 @@ test "load_resource image" {
 
 test "load_resource audio" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var resources = try Resources.create(gpa);
     defer resources.destroy();
 
@@ -1013,7 +1083,7 @@ test "load_resource audio" {
     try expectEqual(.wav, info.extension);
 
     var resource: Resource = .empty;
-    try resource.load(std.testing.allocator, std.testing.allocator, &resources.normalise, file, info.name, info.extension);
+    try resource.load(std.testing.allocator, std.testing.allocator, io, &resources.normalise, file, info.name, info.extension);
     defer resource.deinit(std.testing.allocator);
 
     //try expect(0 != resource.uid);
@@ -1026,6 +1096,7 @@ test "load_resource audio" {
 
 test "search resources" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var keywords: std.ArrayListUnmanaged([]const u8) = .empty;
     defer keywords.deinit(gpa);
     try keywords.append(gpa, "ἄγγελος");
@@ -1036,7 +1107,7 @@ test "search resources" {
     var resources = try Resources.create(gpa);
     defer resources.destroy();
 
-    _ = try resources.load_directory("./test/repo/", null);
+    _ = try resources.load_directory(io, "./test/repo/", null);
 
     //var i = resources.by_filename.index.keyIterator();
     //while (i.next()) |key| {
@@ -1149,6 +1220,7 @@ test "file_name_split" {
 
 test "bundle" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     const TEST_BUNDLE_FILENAME: []const u8 = "/tmp/bundle.bd";
     var data1: []const u8 = "";
     var data2: []const u8 = "";
@@ -1158,7 +1230,7 @@ test "bundle" {
     {
         var resources = try Resources.create(gpa);
         defer resources.destroy();
-        _ = try resources.load_directory("./test/repo/", null);
+        _ = try resources.load_directory(io, "./test/repo/", null);
 
         //var i = resources.by_filename.index.iterator();
         //while (i.next()) |r| {
@@ -1178,12 +1250,12 @@ test "bundle" {
         try expectEqual(2, results.items.len);
         try expectEqualStrings("1122", results.items[0].sentences.items[0]);
         try expectEqualStrings("2233", results.items[1].sentences.items[0]);
-        data1 = try resources.read_data(results.items[0], gpa);
+        data1 = try resources.read_data(gpa, io, results.items[0]);
         try expectEqual(1, resources.used_resource_list.?.items.len);
-        data2 = try resources.read_data(results.items[1], gpa);
+        data2 = try resources.read_data(gpa, io, results.items[1]);
         try expectEqual(2, resources.used_resource_list.?.items.len);
 
-        try resources.save_bundle(TEST_BUNDLE_FILENAME, resources.used_resource_list.?.items, .{}, "/tmp/");
+        try resources.save_bundle(io, TEST_BUNDLE_FILENAME, resources.used_resource_list.?.items, .{}, "/tmp/");
     }
     defer std.testing.allocator.free(data1);
     defer std.testing.allocator.free(data2);
@@ -1191,7 +1263,7 @@ test "bundle" {
     {
         var resources = try Resources.create(std.testing.allocator);
         defer resources.destroy();
-        try resources.load_bundle(TEST_BUNDLE_FILENAME);
+        try resources.load_bundle(io, TEST_BUNDLE_FILENAME);
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
@@ -1204,9 +1276,9 @@ test "bundle" {
         try expectEqual(2, results.items.len);
         try expectEqualStrings("1122", results.items[0].sentences.items[0]);
         try expectEqualStrings("2233", results.items[1].sentences.items[0]);
-        data1b = try resources.read_data(results.items[0], gpa);
+        data1b = try resources.read_data(gpa, io, results.items[0]);
         try expectEqual(1, resources.used_resource_list.?.items.len);
-        data2b = try resources.read_data(results.items[1], gpa);
+        data2b = try resources.read_data(gpa, io, results.items[1]);
         try expectEqual(2, resources.used_resource_list.?.items.len);
 
         results.clearRetainingCapacity();
@@ -1260,6 +1332,7 @@ pub const decode_uid = @import("base62.zig").decode;
 pub const seed = @import("random.zig").seed;
 pub const random = @import("random.zig").random;
 pub const random_u64 = @import("random.zig").random_u64;
+pub const random_string = @import("random.zig").random_string;
 pub const Resource = @import("resource.zig").Resource;
 pub const exportImage = @import("export_image.zig").exportImage;
 

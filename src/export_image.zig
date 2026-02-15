@@ -19,12 +19,13 @@ pub const Size = struct {
 /// width and height.
 pub fn exportImage(
     allocator: Allocator,
+    io: std.Io,
     resource: *const Resource,
     resources: *Resources,
     bounded: Size,
     mode: ScaleMode,
     image_type: FileType,
-) (Allocator.Error || Resources.Error || error{ ExportsJpgOrPngOnly, ImageConversionError } || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.SeekError || std.Io.Reader.Error)![]const u8 {
+) (Allocator.Error || Resources.Error || error{ ExportsJpgOrPngOnly, ImageConversionError } || std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.Error)![]const u8 {
     zstbi.init(allocator);
     defer zstbi.deinit();
 
@@ -32,7 +33,7 @@ pub fn exportImage(
         return error.ExportsJpgOrPngOnly;
 
     // Read the raw image data
-    const data = try resources.read_data(resource, allocator);
+    const data = try resources.read_data(allocator, io, resource);
     defer allocator.free(data);
     var img = Image.loadFromMemory(data, 0) catch |f| {
         err("Image load failed. {any}", .{f});
@@ -217,7 +218,7 @@ pub fn fit(size: Size, preferred: Size) ?Size {
 }
 
 fn get_orientation(_: []const u8) Resources.Error!u32 {
-    //var file = std.fs.file.open(file_data) catch |e| {
+    //var file = std.Io.file.open(file_data) catch |e| {
     //    err("Failed opening file {s} {any}", .{ file_data, e });
     //    return e;
     //};
@@ -402,16 +403,18 @@ test "test_fit" {
 
 test "export_image" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
 
     var resources = try Resources.create(std.testing.allocator);
     defer resources.destroy();
-    _ = try resources.load_directory("./test/repo/", null);
+    _ = try resources.load_directory(io, "./test/repo/", null);
 
     const resource = try resources.lookupOne("δύο κρέα", .image, gpa);
     try expect(resource != null);
 
     const data = try exportImage(
         gpa,
+        io,
         resource.?,
         resources,
         .{ .width = 800, .height = 800 },
@@ -423,6 +426,7 @@ test "export_image" {
 
     const data2 = try exportImage(
         gpa,
+        io,
         resource.?,
         resources,
         .{ .width = 300, .height = 120 },

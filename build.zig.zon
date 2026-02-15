@@ -13,17 +13,17 @@
             .url = "git+https://github.com/zig-gamedev/zstbi.git#664305dd52640be15cbebd7cd73d1199679933e1",
             .hash = "zstbi-0.11.0-dev-L0Ea_2yVBwA4uh-tHfgdhZcQaWRoZVYlNGs4Dl_WTeuR",
         },
-        .zigimg = .{
-            .url = "git+https://github.com/zigimg/zigimg.git#f5783e87627cbd9e0b45fad112e9f73503914f36",
-            .hash = "zigimg-0.1.0-8_eo2vBrFQBhsrLpexdcDQY-zrlzkyFZfKuYX-Nry6KN",
+        .zg = .{
+            .url = "git+https://codeberg.org/loftafi/zg-16.git#f2243a83dc0f46100ff60f92d87c83c6fc143fb1",
+            .hash = "zg-0.15.4-oGqU3NVKtALBC0oT3XfERGB0nza4nfK5M1cH7uVl5C5J",
         },
         .plutosvg = .{
-            .url = "git+https://github.com/JacobCrabill/zig-plutosvg#518e00df9412df30eea6a1934a7edd2658cdd2d9",
-            .hash = "plutosvg-0.0.6-LyMxgbMuAADqe6_HVbOOBTtsmMVlb-ar-iOc7pRrPQYc",
+            .url = "git+https://github.com/JacobCrabill/zig-plutosvg.git#7704671d5130040fb8a25e45c8112809aa89ae6c",
+            .hash = "plutosvg-0.0.6-2-LyMxgdAuAACyA7po0YLhr75Net3boHUgEf3SP2k7DY-1",
         },
-        .zg = .{
-            .url = "git+https://codeberg.org/loftafi/zg.git#2f02c3b16c073d0bd3d9368a66ce272a574f75a3",
-            .hash = "zg-0.15.1-oGqU3J1DtAJhPKw_pU5s8kHGVYDk1leZm4TtO1cvMihq",
+        .zigimg = .{
+            .url = "git+https://github.com/zigimg/zigimg.git#34ce0213cb3664a7099feb8dbde477925db1e963",
+            .hash = "zigimg-0.1.0-8_eo2gp-DgCMHZ4UNUddacjgwR45w1wbYI2NxqCItJ4i",
         },
     },
 
