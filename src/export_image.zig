@@ -101,8 +101,7 @@ pub fn exportImage(
         if (size.height > bounded.height)
             y = (size.height - bounded.height) / 2;
 
-        var cropped_img = crop_image(img, x, y, bounded.width, bounded.height);
-        defer cropped_img.deinit();
+        const cropped_img = crop_image(img, x, y, bounded.width, bounded.height);
         img.deinit();
         img = cropped_img;
     }
@@ -211,20 +210,23 @@ fn crop_image(
 ) zstbi.Image {
     var new_img = try zstbi.Image.createEmpty(@intCast(width), @intCast(height), img.num_components, .{
         .bytes_per_component = img.bytes_per_component,
-        .bytes_per_row = @intCast(width * img.bytes_per_component),
+        .bytes_per_row = @intCast(width * img.bytes_per_component * img.num_components),
     });
 
-    const n: usize = img.bytes_per_component;
+    const n: usize = img.bytes_per_component * img.num_components;
+    std.debug.assert(img.width * img.height * img.num_components * img.bytes_per_component == img.data.len);
+    std.debug.assert(width * height * n == new_img.data.len);
 
     for (0..height) |row| {
         for (0..width) |col| {
-            const dst = row * width * n + col * n;
             const src = (y + row) * img.width * n + (x + col) * n;
-            new_img.data[dst + 0] = img.data[src + 0];
-            new_img.data[dst + 1] = img.data[src + 1];
-            new_img.data[dst + 2] = img.data[src + 2];
+            const dst = (row) * width * n + col * n;
+            for (0..n) |c| {
+                new_img.data[dst + c] = img.data[src + c];
+            }
         }
     }
+
     return new_img;
 }
 
@@ -420,37 +422,47 @@ test "export_image" {
     defer resources.destroy();
     _ = try resources.loadDirectory(io, "./test/repo/", null);
 
-    const resource = try resources.lookupOne("δύο κρέα", .image, gpa);
-    try expect(resource != null);
+    var tmp = try std.Io.Dir.cwd().openDir(io, "/tmp/", .{});
+    defer tmp.close(io);
 
-    const data = try exportImage(
-        gpa,
-        io,
-        resource.?,
-        resources,
-        .{ .width = 800, .height = 800 },
-        //.{ .width = 100, .height = 200 },
-        .fill,
-        .jpg,
-    );
-    defer gpa.free(data);
+    {
+        const resource = try resources.lookupOne("μάχαιρα", .image, gpa);
+        try expect(resource != null);
 
-    const data2 = try exportImage(
-        gpa,
-        io,
-        resource.?,
-        resources,
-        .{ .width = 300, .height = 120 },
-        .fill,
-        .png,
-    );
-    defer gpa.free(data2);
+        const data = try exportImage(
+            gpa,
+            io,
+            resource.?,
+            resources,
+            .{ .width = 800, .height = 800 },
+            .cover,
+            .jpg,
+        );
+        defer gpa.free(data);
 
-    //try write_file_bytes(gpa, "/tmp/test.jpg", data);
-    //try write_file_bytes(gpa, "/tmp/test.png", data2);
+        try expectEqual(22611, data.len);
+        try write_folder_file_bytes(io, tmp, "test.jpg", data);
+    }
 
-    try expectEqual(18621, data.len);
-    try expectEqual(11669, data2.len);
+    {
+        const resource = try resources.lookupOne("δύο κρέα", .image, gpa);
+        try expect(resource != null);
+
+        const data2 = try exportImage(
+            gpa,
+            io,
+            resource.?,
+            resources,
+            .{ .width = 300, .height = 120 },
+            .cover,
+            .png,
+        );
+        defer gpa.free(data2);
+
+        try expectEqual(9774, data2.len);
+
+        try write_folder_file_bytes(io, tmp, "test.png", data2);
+    }
 }
 
 const std = @import("std");
@@ -468,4 +480,4 @@ const FileType = @import("root.zig").FileType;
 const zstbi = @import("zstbi");
 const Image = zstbi.Image;
 
-//const write_file_bytes = @import("resources.zig").write_file_bytes;
+const write_folder_file_bytes = @import("resources.zig").write_folder_file_bytes;
