@@ -31,7 +31,7 @@ pub const Engine = struct {
         allocator.destroy(engine);
     }
 
-    pub fn write(e: *Engine, w: anytype) (std.Io.Writer.Error || Allocator.Error || Error)!void {
+    pub fn write(e: *Engine, w: *std.Io.Writer) (std.Io.Writer.Error || Allocator.Error || Error)!void {
         try e.wav.?.write(w, e);
     }
 
@@ -311,12 +311,13 @@ pub const Wav = struct {
             std.mem.eql(u8, value, "FACT") or std.mem.eql(u8, value, "fact");
     }
 
-    pub fn write(wav: *Wav, w: anytype, e: *Engine) (Error || Allocator.Error || std.Io.Writer.Error)!void {
+    pub fn write(wav: *Wav, w: *std.Io.Writer, e: *Engine) (Error || Allocator.Error || std.Io.Writer.Error)!void {
         try wav.write_header(w, e);
         try wav.write_audio(w, e);
+        try w.flush();
     }
 
-    fn write_header(wav: *Wav, w: anytype, e: *Engine) (Allocator.Error || std.Io.Writer.Error)!void {
+    fn write_header(wav: *Wav, w: *std.Io.Writer, e: *Engine) (Allocator.Error || std.Io.Writer.Error)!void {
         try w.writeAll("RIFF");
         const fileSize: u32 = 36 + @as(u32, @intCast(e.values.items.len * wav.BlockAlign));
         try append_u32(w, fileSize);
@@ -406,6 +407,7 @@ pub fn NewWave32BitFloat(channels: u16, sampleRate: u32) *Wav {
 
 test "read_wav_32_mono" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     try std.testing.expectEqual(Error.incomplete_wav_file, Engine.initWithWav(allocator, ""));
 
     // Read a simple wav file. Ignore unused headers.
@@ -416,22 +418,22 @@ test "read_wav_32_mono" {
     try expectEqual(44100, e.sample_rate);
 
     // Output the simple wave file. Unused headers will not be emitted.
-    var out = std.ArrayListUnmanaged(u8).empty;
-    defer out.deinit(allocator);
-    try e.wav.?.write(out.writer(allocator), e);
+    var out = std.Io.Writer.Allocating.init(allocator);
+    defer out.deinit();
+    try e.wav.?.write(&out.writer, e);
 
     {
         // Read/write and check result
-        const e2 = try Engine.initWithWav(allocator, out.items);
+        const e2 = try Engine.initWithWav(allocator, out.written());
         defer e2.destroy(allocator);
-        var out2 = std.ArrayListUnmanaged(u8).empty;
-        defer out2.deinit(allocator);
-        try e2.wav.?.write(out2.writer(allocator), e2);
-        try expectEqual(out.items.len, out2.items.len);
-        try expectEqualSlices(u8, out.items, out2.items);
-        var f = try std.fs.cwd().createFile("/tmp/w1.wav", .{});
-        try f.writeAll(out2.items);
-        f.close();
+        var out2 = std.Io.Writer.Allocating.init(allocator);
+        defer out2.deinit();
+        try e2.wav.?.write(&out2.writer, e2);
+        try expectEqual(out.written().len, out2.written().len);
+        try expectEqualSlices(u8, out.written(), out2.written());
+        var f = try std.Io.Dir.cwd().createFile(io, "/tmp/w1.wav", .{});
+        defer f.close(io);
+        try f.writeStreamingAll(io, out2.written());
     }
 
     {
@@ -439,18 +441,19 @@ test "read_wav_32_mono" {
         try expectApproxEqAbs(4.02, scale, 0.01);
         try expectApproxEqAbs(1, e.normalise(0.9), 0.01);
         e.faders();
-        var out3 = std.ArrayListUnmanaged(u8).empty;
-        defer out3.deinit(allocator);
-        try e.wav.?.write(out3.writer(allocator), e);
-        try expectEqual(out.items.len, out3.items.len);
-        var f = try std.fs.cwd().createFile("/tmp/w2.wav", .{});
-        try f.writeAll(out3.items);
-        f.close();
+        var out3 = std.Io.Writer.Allocating.init(allocator);
+        defer out3.deinit();
+        try e.wav.?.write(&out3.writer, e);
+        try expectEqual(out.written().len, out3.written().len);
+        var f = try std.Io.Dir.cwd().createFile(io, "/tmp/w2.wav", .{});
+        defer f.close(io);
+        try f.writeStreamingAll(io, out3.written());
     }
 }
 
 test "read_wav_32_stereo" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     try std.testing.expectEqual(Error.incomplete_wav_file, Engine.initWithWav(allocator, ""));
 
     // Read a simple wav file. Ignore unused headers.
@@ -465,17 +468,18 @@ test "read_wav_32_stereo" {
     e.faders();
 
     // Output the simple wave file. Unused headers will not be emitted.
-    var out = std.ArrayListUnmanaged(u8).empty;
-    defer out.deinit(allocator);
-    try e.wav.?.write(out.writer(allocator), e);
+    var out = std.Io.Writer.Allocating.init(allocator);
+    defer out.deinit();
+    try e.wav.?.write(&out.writer, e);
 
-    var f = try std.fs.cwd().createFile("/tmp/w3.wav", .{});
-    try f.writeAll(out.items);
-    f.close();
+    var f = try std.Io.Dir.cwd().createFile(io, "/tmp/w3.wav", .{});
+    defer f.close(io);
+    try f.writeStreamingAll(io, out.written());
 }
 
 test "read_wav_16" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
     // Read a simple wav file. Ignore unused headers.
     const data = @embedFile("wav_16");
@@ -485,17 +489,19 @@ test "read_wav_16" {
     try expectEqual(44100, e.sample_rate);
 
     // Output the simple wave file. Unused headers will not be emitted.
-    var out = std.ArrayListUnmanaged(u8).empty;
-    defer out.deinit(allocator);
-    try e.wav.?.write(out.writer(allocator), e);
+    var out = std.Io.Writer.Allocating.init(allocator);
+    defer out.deinit();
+    //var writer = out.writer;
+    try e.wav.?.write(&out.writer, e);
 
-    var f = try std.fs.cwd().createFile("/tmp/w4.wav", .{});
-    try f.writeAll(out.items);
-    f.close();
+    var f = try std.Io.Dir.cwd().createFile(io, "/tmp/w4.wav", .{});
+    defer f.close(io);
+    try f.writeStreamingAll(io, out.written());
 }
 
 test "fader_test" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
 
     // Read a simple wav file. Ignore unused headers.
     const data = @embedFile("wav_fade_edges");
@@ -509,13 +515,14 @@ test "fader_test" {
     e.faders();
 
     // Output the simple wave file. Unused headers will not be emitted.
-    var out = std.ArrayListUnmanaged(u8).empty;
-    defer out.deinit(gpa);
-    try e.wav.?.write(out.writer(gpa), e);
+    var out = std.Io.Writer.Allocating.init(gpa);
+    defer out.deinit();
+    //var writer = &out.writer;
+    try e.wav.?.write(&out.writer, e);
 
-    var f = try std.fs.cwd().createFile("/tmp/w5.wav", .{});
-    try f.writeAll(out.items);
-    f.close();
+    var f = try std.Io.Dir.cwd().createFile(io, "/tmp/w5.wav", .{});
+    defer f.close(io);
+    try f.writeStreamingAll(io, out.written());
 }
 
 const std = @import("std");

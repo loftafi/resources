@@ -25,15 +25,15 @@ pub fn exportImage(
     bounded: Size,
     mode: ScaleMode,
     image_type: FileType,
-) (Allocator.Error || Resources.Error || error{ ExportsJpgOrPngOnly, ImageConversionError } || std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.Error)![]const u8 {
-    zstbi.init(allocator);
+) (Allocator.Error || Resources.Error || error{ ExportsJpgOrPngOnly, ImageConversionError } || std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Writer.Error || std.Io.File.StatError || std.Io.Reader.LimitedAllocError)![]const u8 {
+    zstbi.init(allocator, io);
     defer zstbi.deinit();
 
     if (image_type != .png and image_type != .jpg)
         return error.ExportsJpgOrPngOnly;
 
     // Read the raw image data
-    const data = try resources.read_data(allocator, io, resource);
+    const data = try resources.loadResource(allocator, io, resource);
     defer allocator.free(data);
     var img = Image.loadFromMemory(data, 0) catch |f| {
         err("Image load failed. {any}", .{f});
@@ -93,55 +93,40 @@ pub fn exportImage(
     }
 
     if (mode == .cover) {
-        if (false) {
-            // Additionally, if cover mode requested, also crop the image if needed.
-            var x: f64 = 0;
-            var y: f64 = 0;
-            if (size.width > bounded.width) {
-                x += @as(f64, @floatCast((size.width - bounded.width))) / 2.0;
-            }
-            if (size.height > bounded.height) {
-                y += @as(f64, @floatCast((size.height - bounded.height))) / 2.0;
-            }
-            const temp_filename = "/tmp/temp.out.png";
-            try Image.writeToFile(img, temp_filename, .{ .png = .{} });
-            var temp_buffer: [zigimg.io.DEFAULT_BUFFER_SIZE * 10]u8 = undefined;
-            err("zigimg load file from {s}", .{temp_filename});
-            var image = try zigimg.Image.fromFilePath(allocator, temp_filename, temp_buffer[0..]);
-            defer image.deinit(allocator);
-            var cropped = try image.crop(allocator, .{
-                .x = @intFromFloat(x),
-                .y = @intFromFloat(y),
-                .width = @intFromFloat(bounded.width),
-                .height = @intFromFloat(bounded.height),
-            });
-            defer cropped.deinit(allocator);
-            try cropped.writeToFilePath(allocator, "testfile.ext", &temp_buffer, .{ .png = .{} });
-        }
-        unreachable;
-    } else {
-        switch (image_type) {
-            .jpg => {
-                var buffer: Buffer = .{ .allocator = allocator };
-                Image.writeToFn(img, write_fn, &buffer, .{ .jpg = .{ .quality = 75 } }) catch |f| {
-                    err("Image write failed. {any}", .{f});
-                    return error.ImageConversionError;
-                };
-                if (buffer.failed) return error.ImageConversionError;
-                return buffer.data.toOwnedSlice(allocator);
-            },
-            .png => {
-                var buffer: Buffer = .{ .allocator = allocator };
-                Image.writeToFn(img, write_fn, &buffer, .png) catch |f| {
-                    err("Image write failed. {any}", .{f});
-                    return error.ImageConversionError;
-                };
-                if (buffer.failed) return error.ImageConversionError;
-                return buffer.data.toOwnedSlice(allocator);
-            },
-            else => unreachable, // only jpg and png should reach this point.
-        }
-        return error.ImageConversionError;
+        // Additionally, if cover mode requested, also crop the image if needed.
+        var x: usize = 0;
+        var y: usize = 0;
+        if (size.width > bounded.width)
+            x = (size.width - bounded.width) / 2;
+        if (size.height > bounded.height)
+            y = (size.height - bounded.height) / 2;
+
+        var cropped_img = crop_image(img, x, y, bounded.width, bounded.height);
+        defer cropped_img.deinit();
+        img.deinit();
+        img = cropped_img;
+    }
+
+    switch (image_type) {
+        .jpg => {
+            var buffer: Buffer = .{ .allocator = allocator };
+            Image.writeToFn(img, write_fn, &buffer, .{ .jpg = .{ .quality = 75 } }) catch |f| {
+                err("Image write failed. {any}", .{f});
+                return error.ImageConversionError;
+            };
+            if (buffer.failed) return error.ImageConversionError;
+            return buffer.data.toOwnedSlice(allocator);
+        },
+        .png => {
+            var buffer: Buffer = .{ .allocator = allocator };
+            Image.writeToFn(img, write_fn, &buffer, .png) catch |f| {
+                err("Image write failed. {any}", .{f});
+                return error.ImageConversionError;
+            };
+            if (buffer.failed) return error.ImageConversionError;
+            return buffer.data.toOwnedSlice(allocator);
+        },
+        else => unreachable, // only jpg and png should reach this point.
     }
 
     return error.ImageConversionError;
@@ -215,6 +200,32 @@ pub fn fit(size: Size, preferred: Size) ?Size {
         return null;
 
     return result;
+}
+
+fn crop_image(
+    img: Image,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) zstbi.Image {
+    var new_img = try zstbi.Image.createEmpty(@intCast(width), @intCast(height), img.num_components, .{
+        .bytes_per_component = img.bytes_per_component,
+        .bytes_per_row = @intCast(width * img.bytes_per_component),
+    });
+
+    const n: usize = img.bytes_per_component;
+
+    for (0..height) |row| {
+        for (0..width) |col| {
+            const dst = row * width * n + col * n;
+            const src = (y + row) * img.width * n + (x + col) * n;
+            new_img.data[dst + 0] = img.data[src + 0];
+            new_img.data[dst + 1] = img.data[src + 1];
+            new_img.data[dst + 2] = img.data[src + 2];
+        }
+    }
+    return new_img;
 }
 
 fn get_orientation(_: []const u8) Resources.Error!u32 {
@@ -407,7 +418,7 @@ test "export_image" {
 
     var resources = try Resources.create(std.testing.allocator);
     defer resources.destroy();
-    _ = try resources.load_directory(io, "./test/repo/", null);
+    _ = try resources.loadDirectory(io, "./test/repo/", null);
 
     const resource = try resources.lookupOne("δύο κρέα", .image, gpa);
     try expect(resource != null);
@@ -455,7 +466,6 @@ const Resource = @import("resources.zig").Resource;
 const Resources = @import("resources.zig").Resources;
 const FileType = @import("root.zig").FileType;
 const zstbi = @import("zstbi");
-const zigimg = @import("zigimg");
 const Image = zstbi.Image;
 
 //const write_file_bytes = @import("resources.zig").write_file_bytes;

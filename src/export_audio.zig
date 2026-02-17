@@ -4,45 +4,73 @@ var ffmpeg_binary: ?[]const u8 = null;
 
 /// Read a wav file, normalise it, then pass it through ffmpeg to
 /// create an ogg data file.
-pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: *Resources, options: Options) (wav.Error || Allocator.Error || Resources.Error || error{FfmpegFailure} || std.fs.File.OpenError || std.fs.File.ReadError || std.fs.File.SeekError || std.Io.Reader.Error || std.process.Child.RunError || std.Io.Writer.Error)![]const u8 {
-    var data = resources.read_data(resource, gpa) catch |f| {
+pub fn generate_ogg_audio(
+    gpa: Allocator,
+    io: std.Io,
+    resource: *const Resource,
+    resources: *Resources,
+    options: Options,
+) (wav.Error || Allocator.Error || Resources.Error || error{FfmpegFailure} ||
+    std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError ||
+    std.Io.Writer.Error || std.Io.Reader.LimitedAllocError ||
+    std.Io.Dir.StatFileError || std.process.RunError)![]const u8 {
+    var data = resources.loadResource(gpa, io, resource) catch |f| {
         err("Failed to read wav data for {d}. Error:{any}", .{ resource.uid, f });
         return f;
     };
     defer gpa.free(data);
 
     if (options.normalise_audio) {
-        var clean: std.ArrayListUnmanaged(u8) = .empty;
-        errdefer clean.deinit(gpa);
+        var clean = std.Io.Writer.Allocating.init(gpa);
+        errdefer clean.deinit();
         var audio = wav.Engine.initWithWav(gpa, data) catch |f| {
             err("Failed to import wav data for {d}. Error:{any}", .{ resource.uid, f });
             return f;
         };
         defer audio.destroy(gpa);
-        _ = audio.normalise(0.95);
+        if (audio.max < 0.95) {
+            std.log.debug("Normalising {f} volume from {d} to {d}", .{ uid_writer(u64, resource.uid), audio.max, 0.95 });
+            _ = audio.normalise(0.95);
+        }
         audio.faders();
-        try audio.write(clean.writer(gpa));
+        try audio.write(&clean.writer);
 
         gpa.free(data);
-        data = try clean.toOwnedSlice(gpa);
+        data = try clean.toOwnedSlice();
     }
 
-    if (ffmpeg_binary == null) {
-        if (std.fs.cwd().statFile("/usr/bin/ffmpeg")) |_| {
-            ffmpeg_binary = "/usr/bin/ffmpeg";
-        } else |_| {}
-        if (std.fs.cwd().statFile("/opt/homebrew/bin/ffmpeg")) |_| {
-            ffmpeg_binary = "/opt/homebrew/bin/ffmpeg";
-        } else |_| {}
-        if (ffmpeg_binary == null) {
-            err("ffmpeg not found in '/usr/bin/' or '/opt/homebrew/bin'", .{});
-            return error.FfmpegFailure;
-        }
-        debug("Found ffmpeg in {s}", .{ffmpeg_binary.?});
-    }
+    return wav_to_ogg(gpa, io, data);
+}
 
+/// Search for the ffmpeg binary in the standard locations.
+fn locate_ffmpeg(io: std.Io) error{FfmpegFailure}![]const u8 {
+    if (ffmpeg_binary != null) return ffmpeg_binary.?;
+
+    if (std.Io.Dir.cwd().statFile(io, "/usr/bin/ffmpeg", .{})) |_| {
+        ffmpeg_binary = "/usr/bin/ffmpeg";
+        return ffmpeg_binary.?;
+    } else |_| {}
+    if (std.Io.Dir.cwd().statFile(io, "/opt/homebrew/bin/ffmpeg", .{})) |_| {
+        ffmpeg_binary = "/opt/homebrew/bin/ffmpeg";
+        return ffmpeg_binary.?;
+    } else |_| {}
+    if (std.Io.Dir.cwd().statFile(io, "/usr/local/bin/ffmpeg", .{})) |_| {
+        ffmpeg_binary = "/usr/local/bin/ffmpeg";
+        return ffmpeg_binary.?;
+    } else |_| {}
+
+    err("ffmpeg not found in '/usr/bin/' or '/opt/homebrew/bin'", .{});
+    return error.FfmpegFailure;
+}
+
+/// Send the bytes of a wav file to ffmpeg, and return the bytes of an ogg file.
+fn wav_to_ogg(
+    gpa: Allocator,
+    io: std.Io,
+    wav_data: []const u8,
+) (std.process.RunError || error{FfmpegFailure} || std.Io.Writer.Error)![]const u8 {
     const argv = [_][]const u8{
-        ffmpeg_binary.?,
+        try locate_ffmpeg(io),
         "-i",
         "pipe:0", //infile,
         "-filter:a",
@@ -56,132 +84,132 @@ pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: 
         "-", //outfile,
     };
 
-    if (resource.filename) |fl| {
-        info("ffmpeg starting with file {s} (sending {d} bytes)", .{ fl, data.len });
-    } else {
-        info("ffmpeg starting (sending {d} bytes)", .{data.len});
+    info("ffmpeg starting (sending {d} bytes)", .{wav_data.len});
+
+    var ffmpeg = std.process.spawn(io, .{
+        .argv = &argv,
+        .stdin = .pipe,
+        .stdout = .pipe,
+        .stderr = .pipe,
+    }) catch |f| {
+        err("Error spawning ffmpeg process. Error:{any}", .{f});
+        return error.FfmpegFailure;
+    };
+
+    const output = try pipe_data(
+        gpa,
+        io,
+        &ffmpeg,
+        wav_data,
+    );
+    errdefer gpa.free(output.stdout);
+    defer gpa.free(output.stderr);
+
+    if (output.term.exited != 0) {
+        err("Build ogg file failed exit code {d}", .{output.term.exited});
+        err("Build ogg file failed. {any}", .{output.stderr});
+        return error.FfmpegFailure;
     }
-    var ffmpeg = std.process.Child.init(&argv, gpa);
-    ffmpeg.stdin_behavior = .Pipe;
-    ffmpeg.stdout_behavior = .Pipe;
-    ffmpeg.stderr_behavior = .Pipe;
 
-    ffmpeg.spawn() catch |f| {
-        err("Error spawning ffmpeg process for {d}. Error:{any}", .{ resource.uid, f });
-        return error.FfmpegFailure;
-    };
-
-    var stderr: std.ArrayListUnmanaged(u8) = .empty;
-    var stdout: std.ArrayListUnmanaged(u8) = .empty;
-    errdefer stdout.deinit(gpa);
-    defer stderr.deinit(gpa);
-    //defer ffmpeg.stdout.?.close();
-    //defer ffmpeg.stderr.?.close();
-
-    try send_data(gpa, &ffmpeg, data, &stdout, &stderr, max_audio_file_size);
-
-    const result = ffmpeg.wait() catch |f| {
-        err("Error waiting ffmpeg process for {f}. Error:{any}", .{ uid_writer(u64, resource.uid), f });
-        return error.FfmpegFailure;
-    };
-
-    if (result != .Exited)
-        err("Build ogg file failed.\n{any}", .{ffmpeg.stderr});
-
-    return stdout.toOwnedSlice(gpa);
+    return output.stdout;
 }
 
-pub fn send_data(
+pub fn pipe_data(
     allocator: Allocator,
+    io: std.Io,
     child: *std.process.Child,
-    stdin: []const u8,
-    stdout: *ArrayListUnmanaged(u8),
-    stderr: *ArrayListUnmanaged(u8),
-    max_output_bytes: usize,
-) !void {
-    assert(child.stdin_behavior == .Pipe);
-    assert(child.stdout_behavior == .Pipe);
-    assert(child.stderr_behavior == .Pipe);
+    stream: []const u8,
+) (std.process.RunError || error{FfmpegFailure} || std.Io.Writer.Error)!std.process.RunResult {
+    var multi_reader_buffer: std.Io.File.MultiReader.Buffer(2) = undefined;
+    var multi_reader: std.Io.File.MultiReader = undefined;
+    multi_reader.init(allocator, io, multi_reader_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
+    defer multi_reader.deinit();
 
-    var data = stdin;
+    const timeout: std.Io.Timeout = .{ .duration = .{ .clock = .awake, .raw = .fromMilliseconds(100) } };
+    var buffer: [10 * 1024]u8 = undefined;
+    var writer = child.stdin.?.writer(io, &buffer);
 
-    var poller = std.Io.poll(allocator, enum { stdout, stderr }, .{
-        .stdout = child.stdout.?,
-        .stderr = child.stderr.?,
-    });
-    defer poller.deinit();
+    var data = stream;
 
-    const stdout_r = poller.reader(.stdout);
-    stdout_r.buffer = stdout.allocatedSlice();
-    stdout_r.seek = 0;
-    stdout_r.end = stdout.items.len;
+    const x = if (data.len < block_size) data.len else block_size;
+    try writer.interface.writeAll(data[0..x]);
+    data = data[block_size..];
+    try writer.interface.flush();
 
-    const stderr_r = poller.reader(.stderr);
-    stderr_r.buffer = stderr.allocatedSlice();
-    stderr_r.seek = 0;
-    stderr_r.end = stderr.items.len;
-
-    defer {
-        stdout.* = .{
-            .items = stdout_r.buffer[0..stdout_r.end],
-            .capacity = stdout_r.buffer.len,
+    while (true) {
+        //std.log.info("do fill. current stderr = {s}", .{multi_reader.reader(1).buffered()});
+        _ = multi_reader.fill(9 * 1024, timeout) catch |f| switch (f) {
+            error.EndOfStream => break,
+            error.Timeout => {},
+            else => |e| return e,
         };
-        stderr.* = .{
-            .items = stderr_r.buffer[0..stderr_r.end],
-            .capacity = stderr_r.buffer.len,
-        };
-        stdout_r.buffer = &.{};
-        stderr_r.buffer = &.{};
-    }
-
-    while (try poller.pollTimeout(1000 * 1000 * 100)) {
-        if (stdout_r.bufferedLen() > max_output_bytes)
-            return error.StdoutStreamTooLong;
-        if (stderr_r.bufferedLen() > max_output_bytes)
-            return error.StderrStreamTooLong;
+        //std.log.err("multireader returned (max bytes = {d})", .{max_output_bytes});
         if (data.len > 0) {
             const l = if (data.len < block_size) data.len else block_size;
-            //debug("sending {d} bytes. {d} bytes left", .{ l, data.len });
-            child.stdin.?.writeAll(data[0..l]) catch |f| {
+            //std.log.info("send {d} bytes", .{l});
+            writer.interface.writeAll(data[0..l]) catch |f| {
                 err("Error sending audio to ffmpeg. Error:{any}", .{f});
                 return error.FfmpegFailure;
             };
+            try writer.interface.flush();
             if (data.len < block_size) {
+                //std.log.info("all data now sent", .{});
                 data.len = 0;
-                child.stdin.?.close();
+                child.stdin.?.close(io);
                 child.stdin = null;
-                child.stdin_behavior = .Ignore;
             } else {
+                //std.log.info("continuing to next block", .{});
                 data = data[block_size..];
             }
+        } else {
+            //std.log.info("all data sent", .{});
         }
     }
+
+    try multi_reader.checkAnyError();
+
+    const term = try child.wait(io);
+
+    const stdout_slice = try multi_reader.toOwnedSlice(0);
+    errdefer allocator.free(stdout_slice);
+
+    const stderr_slice = try multi_reader.toOwnedSlice(1);
+    errdefer allocator.free(stderr_slice);
+
+    return .{
+        .stdout = stdout_slice,
+        .stderr = stderr_slice,
+        .term = term,
+    };
 }
 
 const block_size = 50000;
 
 test "audio_to_ogg" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
     var resources = try Resources.create(gpa);
     defer resources.destroy();
 
-    _ = try resources.load_directory("./test/repo/", null);
+    _ = try resources.loadDirectory(io, "./test/repo/", null);
     const resource = try resources.lookupOne("ἄρτος", .wav, gpa);
 
-    //try expect(0 != resource.uid);
     try expectEqual(true, resource.?.visible);
     try expectEqual(.wav, resource.?.resource);
     try expectEqual(1, resource.?.sentences.items.len);
     try expectEqualStrings("ἄρτος", resource.?.sentences.items[0]);
 
-    const data = try generate_ogg_audio(gpa, resource.?, resources, .{});
+    const data = try generate_ogg_audio(gpa, io, resource.?, resources, .{ .normalise_audio = true });
     defer gpa.free(data);
 
     // Different versions of ffmpeg create a slightly different sized file.
     try expect(data.len < 25954 + 1000);
     try expect(data.len > 25954 - 1000);
 
-    //try write_file_bytes(gpa, "/tmp/test.ogg", data);
+    var tmp = try std.Io.Dir.cwd().openDir(io, "/tmp/", .{});
+    defer tmp.close(io);
+    try write_folder_file_bytes(io, tmp, "test.ogg", data);
 }
 
 const std = @import("std");
@@ -200,5 +228,6 @@ const Resources = @import("resources.zig").Resources;
 const Resource = @import("resources.zig").Resource;
 const Options = @import("resources.zig").Options;
 const uid_writer = @import("base62.zig").uid_writer;
+const write_folder_file_bytes = @import("resources.zig").write_folder_file_bytes;
 
 const wav = @import("wav.zig");

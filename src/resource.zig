@@ -109,7 +109,7 @@ pub const Resource = struct {
 
         if (data.len != data_nfc.slice.len) {
             warn("metadata file {s} is not nfc.", .{metadata_file});
-            write_file_bytes(gpa, io, filename, data_nfc.slice) catch {
+            write_file_bytes(io, filename, data_nfc.slice) catch {
                 warn("update metadata file {s} to nfc failed.", .{metadata_file});
             };
         }

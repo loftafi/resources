@@ -9,9 +9,8 @@ var seeded: bool = false;
 ///
 /// This is _not_ cryptographically secure.
 pub fn random(limit: usize) usize {
-    if (limit == 0) {
-        return 0;
-    }
+    if (limit == 0) return 0;
+
     value ^= value << 13;
     value ^= value >> 17;
     value ^= value << 5;
@@ -39,13 +38,15 @@ pub inline fn random_u64() u64 {
 }
 
 /// Seed the random number generator with the current time
-pub fn seed() void {
-    if (!seeded)
-        value = @intCast(std.time.milliTimestamp());
+pub fn seed(io: std.Io) void {
+    if (seeded) return;
+
+    const timestamp = std.Io.Timestamp.now(io, .real);
+    value = @intCast(timestamp.toMilliseconds());
 }
 
 test "random_string" {
-    seed();
+    seed(std.testing.io);
     var buffer1: [8]u8 = undefined;
     try expectEqual(buffer1.len, random_string(&buffer1).len);
     var buffer2: [9]u8 = undefined;

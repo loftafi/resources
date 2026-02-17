@@ -1,11 +1,17 @@
-/// A collection of files may be loaded from a folder or a resource
-/// bundle.
+/// `Resources` is an index of file resources, loaded from a folder
+/// or a resource bundle. Each file may contain metadata such as
+/// creation time, url to file origin, and copyright owner.
 ///
-///  - During development use `load_directory` to load content from
-///    a directory on disk.
-///  - When preparing for production, create a resource bundle.
-///  - Released apps apps use `load_bundle` to load their files from
-///    a resource bundle.
+/// During development, on app startup use `loadDirectory` to load
+/// your resources from a directory on disk.
+///
+/// When your app uses `lookup()` the resource uid is rememebered
+/// in the `used_resources`.
+///
+/// After all resources are loaded using `loadResource()` use `save_bundle()`
+/// to create place all used/needed  resources into a file bundle that you
+/// can later simply use `loadBundle()`.
+///
 pub const Resources = struct {
     /// Lookup resource by UID in metadata file.
     by_uid: std.AutoHashMap(u64, *Resource),
@@ -21,74 +27,12 @@ pub const Resources = struct {
     arena: *std.heap.ArenaAllocator,
     arena_allocator: Allocator,
     parent_allocator: Allocator,
-    used_resource_list: ?ArrayListUnmanaged(*const Resource),
+    used_resources: ?std.AutoHashMapUnmanaged(u64, *const Resource),
 
     folder: []const u8 = "",
     bundle_file: []const u8 = "",
 
     normalise: Normalize,
-
-    /// Filter searches by resource type
-    pub const SearchCategory = enum {
-        any,
-        audio,
-        image,
-        font,
-        wav,
-        jpg,
-        png,
-        svg,
-        ttf,
-        otf,
-        csv,
-        jpx,
-        xml,
-        json,
-        bin,
-        ogg,
-        mp3,
-        js,
-
-        pub fn matches(self: SearchCategory, value: FileType) bool {
-            return switch (self) {
-                .any => true,
-                .audio => value == .wav or value == .ogg or value == .mp3,
-                .image => value == .png or value == .jpg,
-                .font => value == .ttf or value == .otf,
-                .wav => value == .wav,
-                .jpg => value == .jpg,
-                .png => value == .png,
-                .ttf => value == .ttf,
-                .otf => value == .otf,
-                .csv => value == .csv,
-                .jpx => value == .jpx,
-                .svg => value == .svg,
-                .xml => value == .xml,
-                .json => value == .json,
-                .bin => value == .bin,
-                .ogg => value == .ogg,
-                .mp3 => value == .mp3,
-                .js => value == .js,
-            };
-        }
-    };
-
-    pub const Error = error{
-        FailedReadingRepo,
-        ReadRepoFileFailed,
-        ReadMetadataFailed,
-        InvalidResourceUID,
-        MetadataMissing,
-        FilenameTooLong,
-        ResourceHasNoFilename,
-        QueryTooLong,
-        QueryEmpty,
-        QueryEncodingError,
-        InvalidBundleFile,
-        BundleTooShortToExtractFile,
-        UnknownImageOrientation,
-        ImageConversionError,
-    };
 
     pub fn create(parent_allocator: Allocator) error{OutOfMemory}!*Resources {
         var arena = try parent_allocator.create(std.heap.ArenaAllocator);
@@ -109,10 +53,8 @@ pub const Resources = struct {
             .parent_allocator = parent_allocator,
             .folder = "",
             .bundle_file = "",
-            .used_resource_list = .empty,
+            .used_resources = null,
         };
-
-        seed();
 
         return resources;
     }
@@ -120,7 +62,7 @@ pub const Resources = struct {
     pub fn destroy(self: *Resources) void {
         self.normalise.deinit(self.arena_allocator);
 
-        if (self.used_resource_list) |*manifest| {
+        if (self.used_resources) |*manifest| {
             manifest.deinit(self.arena_allocator);
         }
 
@@ -147,16 +89,14 @@ pub const Resources = struct {
         self.parent_allocator.destroy(self);
     }
 
-    // Load the table of contents of a file resource bundle into memory
-    // so that files inside can be searched/loaded. The package level `seed()`
-    // function should be called before calling `load_directory`. To ignore
-    // some files in the source folder, implement a filter function that
-    // returns true if a file name or type should be skipped.
-    pub fn load_bundle(
+    // Load the table of contents of a resource bundle into memory.
+    pub fn loadBundle(
         self: *Resources,
         io: std.Io,
         bundle_filename: []const u8,
     ) (Allocator.Error || std.Io.File.OpenError || Error || std.Io.Reader.Error || std.Io.Reader.Error)!void {
+        seed(io);
+
         var buffer: [300:0]u8 = undefined;
         var rbuffer: [4196:0]u8 = undefined;
         const e = std.builtin.Endian.little;
@@ -226,10 +166,17 @@ pub const Resources = struct {
         self: *Resources,
         io: std.Io,
         filename: []const u8,
-        manifest: []*const Resource,
+        resources: std.AutoHashMapUnmanaged(u64, *const Resource),
         options: Options,
         cache: []const u8,
-    ) (Allocator.Error || Resources.Error || std.Io.File.OpenError || std.Io.Writer.Error || std.Io.Writer.Error || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.Error || std.Io.Dir.OpenError || std.Io.Dir.RenameError)!void {
+    ) (Allocator.Error || Resources.Error || std.Io.File.OpenError ||
+        std.Io.Writer.Error || std.Io.Writer.Error || std.Io.Reader.Error ||
+        std.Io.File.SeekError || std.Io.Reader.Error || std.Io.Writer.Error ||
+        std.Io.File.Writer.Error || std.Io.Dir.OpenError || std.Io.Dir.RenameError ||
+        std.Io.File.StatError || std.Io.Reader.LimitedAllocError ||
+        std.Io.File.Reader.Error || error{FfmpegFailure} || wav.Error)!void {
+        seed(io);
+
         const cache_dir = std.Io.Dir.openDirAbsolute(io, cache, .{ .iterate = false }) catch |f| {
             err("Failed to access cache folder: {s} {any}", .{ cache, f });
             return f;
@@ -243,7 +190,10 @@ pub const Resources = struct {
         var file_index: usize = 0; // Count the file index position (after header)
         var buff: [40:0]u8 = undefined;
         var buff2: [100]u8 = undefined; // uid length plus file extension
-        for (manifest) |resource| {
+
+        var iterator = resources.valueIterator();
+        while (iterator.next()) |r| {
+            var resource: *const Resource = r.*;
             const uid = encode(u64, resource.uid, &buff);
 
             if (header_contains(header_items.items, resource.uid)) {
@@ -262,8 +212,7 @@ pub const Resources = struct {
             };
             defer file.close(io);
 
-            const stat = try file.stat(io);
-            var add_size = stat.size;
+            var add_size: usize = 0;
             var add_type = resource.resource;
             var add_cache = false;
 
@@ -272,31 +221,30 @@ pub const Resources = struct {
             if (resource.resource == .wav and options.audio == .ogg) {
                 const name = try std.fmt.bufPrint(&buff2, "{s}.ogg", .{uid});
                 //debug("check cache for: {s}", .{name});
-                if (try cache_has_file(cache_dir, name)) |cache_size| {
+                if (try cache_has_file(io, cache_dir, name)) |cache_size| {
                     add_size = cache_size;
                 } else {
                     std.log.info("generating ogg for {s} wav. {s} normalised={any}", .{ name, uid, options.normalise_audio });
-                    const processed = generate_ogg_audio(self.parent_allocator, resource, self, options) catch |f| {
+                    const processed = generate_ogg_audio(self.parent_allocator, io, resource, self, options) catch |f| {
                         err("generate_ogg_audio_failed. {any} Skipping {s}. {s}", .{ f, uid, resource.filename.? });
                         continue;
                     };
                     std.log.info("generated ogg for {s} wav. {s} size={d}", .{ name, uid, processed.len });
                     defer self.parent_allocator.free(processed);
-                    try write_folder_file_bytes(cache_dir, name, processed);
+                    try write_folder_file_bytes(io, cache_dir, name, processed);
                     add_size = processed.len;
                 }
                 add_cache = true;
                 add_type = .ogg;
-            }
-
-            if ((resource.resource == .jpg or resource.resource == .png) and options.image == .jpg) {
+            } else if ((resource.resource == .jpg or resource.resource == .png) and options.image == .jpg) {
                 const name = try std.fmt.bufPrint(&buff2, "{s}.jpg", .{uid});
                 //debug("check cache for: {s}", .{name});
-                if (try cache_has_file(cache_dir, name)) |cache_size| {
+                if (try cache_has_file(io, cache_dir, name)) |cache_size| {
                     add_size = cache_size;
                 } else {
                     const processed = exportImage(
                         self.parent_allocator,
+                        io,
                         resource,
                         self,
                         .{ .width = 800, .height = 800 },
@@ -307,12 +255,16 @@ pub const Resources = struct {
                         continue;
                     };
                     defer self.parent_allocator.free(processed);
-                    debug("generated jpg {s} for {t} ({d} to {d} bytes)", .{ filename, resource.resource, stat.size, processed.len });
-                    try write_folder_file_bytes(cache_dir, name, processed);
+                    debug("generated jpg {s} for {t} ({d} to {d} bytes)", .{ filename, resource.resource, add_size, processed.len });
+                    try write_folder_file_bytes(io, cache_dir, name, processed);
                     add_size = processed.len;
                 }
                 add_cache = true;
                 add_type = .jpg;
+            } else {
+                // TODO: remove stat, we have to load the bytes of the file anyway
+                const stat = try file.stat(io);
+                add_size = stat.size;
             }
 
             //debug("adding file: {s} size={d} type={t}", .{ uid, add_size, add_type });
@@ -390,12 +342,13 @@ pub const Resources = struct {
             try append_u64(&header, header_size + item.file_index, self.parent_allocator);
         }
 
-        const output = std.Io.Dir.cwd().createFile(filename, .{ .truncate = true }) catch |e| {
+        const output = std.Io.Dir.cwd().createFile(io, filename, .{ .truncate = true }) catch |e| {
             err("Failed to create repo bundle file: {s} {any}", .{ filename, e });
             return e;
         };
-
-        try output.writeAll(header.items);
+        var buffer: [1024]u8 = undefined;
+        var writer = output.writer(io, &buffer);
+        try writer.interface.writeAll(header.items);
 
         // Add the files
         for (header_items.items) |item| {
@@ -403,9 +356,9 @@ pub const Resources = struct {
             var data: []const u8 = &.{};
             if (item.cached) {
                 const cache_name = try std.fmt.bufPrint(&buff2, "{s}.{s}", .{ uid, item.type.extension() });
-                data = try load_folder_file_bytes(self.parent_allocator, cache_dir, cache_name);
+                data = try load_folder_file_bytes(self.parent_allocator, io, cache_dir, cache_name);
             } else {
-                data = try self.read_data(io, self.parent_allocator, item.resource);
+                data = try self.loadResource(self.parent_allocator, io, item.resource);
             }
             defer self.parent_allocator.free(data);
             if (data.len != item.size) {
@@ -413,8 +366,9 @@ pub const Resources = struct {
                 return error.ReadMetadataFailed;
             }
 
-            try output.writeAll(data);
+            try writer.interface.writeAll(data);
         }
+        try writer.interface.flush();
     }
 
     pub fn header_contains(items: []BundleResource, uid: u64) bool {
@@ -426,9 +380,8 @@ pub const Resources = struct {
 
     // Load the full list of usable files inside the `folder` along with
     // any associated metadata files so that each file can be searched for
-    // and loaded. The package level `seed()` function should be called before
-    // calling `load_directory`.
-    pub fn load_directory(
+    // and loaded.
+    pub fn loadDirectory(
         self: *Resources,
         io: std.Io,
         folder: []const u8,
@@ -446,6 +399,9 @@ pub const Resources = struct {
             return false;
         };
         defer dir.close(io);
+
+        if (self.used_resources == null)
+            self.used_resources = .empty;
 
         self.folder = try self.arena_allocator.dupeZ(u8, folder);
 
@@ -772,22 +728,25 @@ pub const Resources = struct {
     // Read the binary data of the requested resource. Depending on
     // where the file was found it might be loaded from a directory or
     // from a resource bundle.
-    pub fn read_data(
+    pub fn loadResource(
         self: *Resources,
         allocator: Allocator,
         io: std.Io,
         resource: *const Resource,
-    ) (Resources.Error || Allocator.Error || std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.Error)![]const u8 {
-        if (self.used_resource_list) |*manifest| {
-            try manifest.append(self.arena_allocator, resource);
+    ) (Resources.Error || Allocator.Error || std.Io.File.OpenError || std.Io.File.StatError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.LimitedAllocError)![]const u8 {
+        if (self.used_resources) |*manifest| {
+            try manifest.put(self.arena_allocator, resource.uid, resource);
         }
+
+        // If a file was loaded using `loadDirectory` the resources
+        // has a filename to use to load the file data.
         if (resource.filename) |filename| {
             // Resource has a filename, read a file.
-            const data = load_file_bytes(allocator, io, filename) catch |e| {
-                return e;
-            };
-            return data;
+            return try load_file_bytes(allocator, io, filename);
         }
+
+        // If the file was found in a resource bundle, a byte offset
+        // into the bundle is available to use to load the file data.
         if (resource.bundle_offset) |bundle_offset| {
             // Resource has an offset pointer into a bundle, read the bundle.
             return try load_file_byte_slice(
@@ -798,8 +757,73 @@ pub const Resources = struct {
                 resource.size,
             );
         }
-        return Error.ResourceHasNoFilename;
+
+        // This should never occur.
+        err("Resource has neither a filename or bundle offset.", .{});
+        unreachable;
     }
+
+    /// Filter searches by resource type
+    pub const SearchCategory = enum {
+        any,
+        audio,
+        image,
+        font,
+        wav,
+        jpg,
+        png,
+        svg,
+        ttf,
+        otf,
+        csv,
+        jpx,
+        xml,
+        json,
+        bin,
+        ogg,
+        mp3,
+        js,
+
+        pub fn matches(self: SearchCategory, value: FileType) bool {
+            return switch (self) {
+                .any => true,
+                .audio => value == .wav or value == .ogg or value == .mp3,
+                .image => value == .png or value == .jpg,
+                .font => value == .ttf or value == .otf,
+                .wav => value == .wav,
+                .jpg => value == .jpg,
+                .png => value == .png,
+                .ttf => value == .ttf,
+                .otf => value == .otf,
+                .csv => value == .csv,
+                .jpx => value == .jpx,
+                .svg => value == .svg,
+                .xml => value == .xml,
+                .json => value == .json,
+                .bin => value == .bin,
+                .ogg => value == .ogg,
+                .mp3 => value == .mp3,
+                .js => value == .js,
+            };
+        }
+    };
+
+    pub const Error = error{
+        FailedReadingRepo,
+        ReadRepoFileFailed,
+        ReadMetadataFailed,
+        InvalidResourceUID,
+        MetadataMissing,
+        FilenameTooLong,
+        ResourceHasNoFilename,
+        QueryTooLong,
+        QueryEmpty,
+        QueryEncodingError,
+        InvalidBundleFile,
+        BundleTooShortToExtractFile,
+        UnknownImageOrientation,
+        ImageConversionError,
+    };
 };
 
 /// Convert the extension of the file into an enum, and return both the
@@ -905,19 +929,8 @@ pub fn write_file_bytes(
     io: std.Io,
     filename: []const u8,
     data: []const u8,
-) (Allocator.Error || std.Io.Writer.Error || std.Io.Writer.Error || std.Io.File.OpenError || std.Io.Dir.RenameError)!void {
-    const buffer: [16]u8 = undefined;
-    const tmp_filename = random_string(&buffer);
-    const file = std.Io.Dir.cwd().createFile(tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
-        err(
-            "Failed to open file for writing: {s}. {any}",
-            .{ filename, e },
-        );
-        return e;
-    };
-    defer file.close(io);
-    try file.writeAll(data);
-    try std.Io.Dir.cwd().rename(tmp_filename, filename);
+) (Allocator.Error || std.Io.Writer.Error || std.Io.File.OpenError || std.Io.Dir.RenameError || std.Io.File.Writer.Error)!void {
+    try write_folder_file_bytes(io, std.Io.Dir.cwd(), filename, data);
 }
 
 pub fn write_folder_file_bytes(
@@ -925,16 +938,16 @@ pub fn write_folder_file_bytes(
     folder: std.Io.Dir,
     filename: []const u8,
     data: []const u8,
-) (Allocator.Error || std.Io.Writer.Error || std.Io.Writer.Error || std.Io.File.OpenError || std.Io.Dir.RenameError)!void {
-    const buffer: [16]u8 = undefined;
+) (Allocator.Error || std.Io.Writer.Error || std.Io.File.OpenError || std.Io.Dir.RenameError || std.Io.File.Writer.Error)!void {
+    var buffer: [16]u8 = undefined;
     const tmp_filename = random_string(&buffer);
     const file = folder.createFile(io, tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
         err("Failed to open file for writing: {s}. {any}", .{ filename, e });
         return e;
     };
     defer file.close(io);
-    try file.writeAll(data);
-    try folder.rename(tmp_filename, filename);
+    try file.writeStreamingAll(io, data);
+    try std.Io.Dir.rename(folder, tmp_filename, folder, filename, io);
 }
 
 pub fn cache_has_file(
@@ -949,33 +962,37 @@ pub fn cache_has_file(
     return stat.size;
 }
 
+// std.Io.Dir.cwd().readFileAlloc(io, filename, allocator, .unlimited)
 pub fn load_file_bytes(
     allocator: Allocator,
     io: std.Io,
     filename: []const u8,
-) (Allocator.Error || std.Io.File.OpenError || std.Io.Reader.Error)![]u8 {
+) (Allocator.Error || std.Io.File.OpenError || std.Io.Reader.Error || std.Io.Reader.LimitedAllocError)![]u8 {
     const file = std.Io.Dir.cwd().openFile(io, filename, .{ .mode = .read_only }) catch |e| {
         if (!std.ascii.endsWithIgnoreCase(filename, ".txt"))
             log.debug("load_file_bytes failed to read file: {s}  {any}", .{ filename, e });
         return e;
     };
     defer file.close(io);
-    const stat = try file.stat(io);
-    return try file.readToEndAlloc(allocator, stat.size);
+    var tmp: [1024 * 5]u8 = undefined;
+    var reader = file.reader(io, &tmp);
+    return try reader.interface.allocRemaining(allocator, .unlimited);
 }
 
+// folder.readFileAlloc(io, filename, allocator, .unlimited)
 pub fn load_folder_file_bytes(
     allocator: Allocator,
     io: std.Io,
     folder: std.Io.Dir,
     filename: []const u8,
-) (Allocator.Error || std.Io.File.OpenError || std.Io.Reader.Error)![]u8 {
+) (Allocator.Error || std.Io.File.OpenError || std.Io.Reader.LimitedAllocError || std.Io.Reader.Error)![]u8 {
     const file = folder.openFile(io, filename, .{ .mode = .read_only }) catch |e| {
         return e;
     };
     defer file.close(io);
-    const stat = try file.stat(io);
-    return try file.readToEndAlloc(allocator, stat.size);
+    var tmp: [1024 * 5]u8 = undefined;
+    var reader = file.reader(io, &tmp);
+    return reader.interface.allocRemaining(allocator, .unlimited);
 }
 
 fn load_file_byte_slice(
@@ -990,19 +1007,34 @@ fn load_file_byte_slice(
         return e;
     };
     defer file.close(io);
-    const stat = try file.stat(io);
-    if (stat.size < offset + size) {
-        return error.BundleTooShortToExtractFile;
-    }
-    file.seekTo(offset) catch |e| {
+    var tmp: [1024 * 5]u8 = undefined;
+    var reader = file.reader(io, &tmp);
+    reader.seekTo(offset) catch |e| {
         err("Seek file failed: {s} {d} {d} Error: {any}", .{ filename, offset, size, e });
         return e;
     };
-    const buffer = try allocator.alloc(u8, size);
-    errdefer allocator.free(buffer);
-    const found = try file.readAll(buffer);
-    std.debug.assert(size == found);
-    return buffer;
+    return reader.interface.readAlloc(allocator, size);
+}
+
+test "test_load_file_bytes" {
+    const data = try load_file_bytes(std.testing.allocator, std.testing.io, "./test/test.txt");
+    defer std.testing.allocator.free(data);
+    try expectEqualStrings("simple\n", data);
+}
+
+test "test_write_file" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const data = "this is a test\n";
+    const filename = "test.dat";
+
+    try write_folder_file_bytes(io, tmp.dir, filename, data);
+    const read = try load_folder_file_bytes(gpa, io, tmp.dir, filename);
+    defer std.testing.allocator.free(read);
+    try expectEqualStrings(data, read);
 }
 
 test "read_extension" {
@@ -1107,7 +1139,7 @@ test "search resources" {
     var resources = try Resources.create(gpa);
     defer resources.destroy();
 
-    _ = try resources.load_directory(io, "./test/repo/", null);
+    _ = try resources.loadDirectory(io, "./test/repo/", null);
 
     //var i = resources.by_filename.index.keyIterator();
     //while (i.next()) |key| {
@@ -1230,7 +1262,7 @@ test "bundle" {
     {
         var resources = try Resources.create(gpa);
         defer resources.destroy();
-        _ = try resources.load_directory(io, "./test/repo/", null);
+        _ = try resources.loadDirectory(io, "./test/repo/", null);
 
         //var i = resources.by_filename.index.iterator();
         //while (i.next()) |r| {
@@ -1250,20 +1282,27 @@ test "bundle" {
         try expectEqual(2, results.items.len);
         try expectEqualStrings("1122", results.items[0].sentences.items[0]);
         try expectEqualStrings("2233", results.items[1].sentences.items[0]);
-        data1 = try resources.read_data(gpa, io, results.items[0]);
-        try expectEqual(1, resources.used_resource_list.?.items.len);
-        data2 = try resources.read_data(gpa, io, results.items[1]);
-        try expectEqual(2, resources.used_resource_list.?.items.len);
+        data1 = try resources.loadResource(gpa, io, results.items[0]);
+        try expectEqual(1, resources.used_resources.?.count());
+        data2 = try resources.loadResource(gpa, io, results.items[1]);
+        try expectEqual(2, resources.used_resources.?.count());
 
-        try resources.save_bundle(io, TEST_BUNDLE_FILENAME, resources.used_resource_list.?.items, .{}, "/tmp/");
+        try resources.save_bundle(
+            io,
+            TEST_BUNDLE_FILENAME,
+            resources.used_resources.?,
+            .{},
+            "/tmp/",
+        );
     }
     defer std.testing.allocator.free(data1);
     defer std.testing.allocator.free(data2);
 
     {
         var resources = try Resources.create(std.testing.allocator);
+        resources.used_resources = .empty;
         defer resources.destroy();
-        try resources.load_bundle(io, TEST_BUNDLE_FILENAME);
+        try resources.loadBundle(io, TEST_BUNDLE_FILENAME);
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
@@ -1276,10 +1315,10 @@ test "bundle" {
         try expectEqual(2, results.items.len);
         try expectEqualStrings("1122", results.items[0].sentences.items[0]);
         try expectEqualStrings("2233", results.items[1].sentences.items[0]);
-        data1b = try resources.read_data(gpa, io, results.items[0]);
-        try expectEqual(1, resources.used_resource_list.?.items.len);
-        data2b = try resources.read_data(gpa, io, results.items[1]);
-        try expectEqual(2, resources.used_resource_list.?.items.len);
+        data1b = try resources.loadResource(gpa, io, results.items[0]);
+        try expectEqual(1, resources.used_resources.?.count());
+        data2b = try resources.loadResource(gpa, io, results.items[1]);
+        try expectEqual(2, resources.used_resources.?.count());
 
         results.clearRetainingCapacity();
         try resources.lookup("1122.", .any, true, &results, gpa);
@@ -1347,9 +1386,11 @@ const max_word_size = @import("praxis").max_word_size;
 const generate_ogg_audio = @import("export_audio.zig").generate_ogg_audio;
 const Size = @import("export_image.zig").Size;
 
+const wav = @import("wav.zig");
+
 const encode = @import("base62.zig").encode;
 const decode = @import("base62.zig").decode;
-const uid_writer = @import("base62.zig").encode_writer;
+const uid_formatter = @import("base62.zig").uid_writer;
 const BinaryReader = @import("binary_reader.zig");
 const BinaryWriter = @import("binary_writer.zig");
 const append_u64 = BinaryWriter.append_u64;

@@ -9,21 +9,13 @@
             .url = "git+https://github.com/loftafi/praxis.git#15961aa12dd184654a8217cdef1b3e03535f9123",
             .hash = "praxis-0.5.5-FPf2Nen-BgDUSHamZvZIlljSj-E6Jl_1k4i01ZcB-IWN",
         },
-        .zstbi = .{
-            .url = "git+https://github.com/zig-gamedev/zstbi.git#664305dd52640be15cbebd7cd73d1199679933e1",
-            .hash = "zstbi-0.11.0-dev-L0Ea_2yVBwA4uh-tHfgdhZcQaWRoZVYlNGs4Dl_WTeuR",
-        },
         .zg = .{
             .url = "git+https://codeberg.org/loftafi/zg-16.git#f2243a83dc0f46100ff60f92d87c83c6fc143fb1",
             .hash = "zg-0.15.4-oGqU3NVKtALBC0oT3XfERGB0nza4nfK5M1cH7uVl5C5J",
         },
-        .plutosvg = .{
-            .url = "git+https://github.com/JacobCrabill/zig-plutosvg.git#7704671d5130040fb8a25e45c8112809aa89ae6c",
-            .hash = "plutosvg-0.0.6-2-LyMxgdAuAACyA7po0YLhr75Net3boHUgEf3SP2k7DY-1",
-        },
-        .zigimg = .{
-            .url = "git+https://github.com/zigimg/zigimg.git#34ce0213cb3664a7099feb8dbde477925db1e963",
-            .hash = "zigimg-0.1.0-8_eo2gp-DgCMHZ4UNUddacjgwR45w1wbYI2NxqCItJ4i",
+        .zstbi = .{
+            .url = "git+https://github.com/zaddok/zstbi.git#456b7620bf8036d29454d98cb506e0428e6510ae",
+            .hash = "zstbi-0.11.0-dev-L0Ea_06WBwCZoJBl6SD0bcHOLEEIrD5xbQ0TbXe-SQ5Y",
         },
     },
 
