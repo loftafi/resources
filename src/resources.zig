@@ -22,17 +22,22 @@ pub const Resources = struct {
 
     /// Lookup resource by sentence in the metadata, or the the name
     /// component of the filename:
-    by_filename: SearchIndex(*Resource, lessThan),
+    by_sentence: SearchIndex(*Resource, lessThan),
 
     arena: *std.heap.ArenaAllocator,
     arena_allocator: Allocator,
     parent_allocator: Allocator,
-    used_resources: ?std.AutoHashMapUnmanaged(u64, *const Resource),
 
+    /// If `loadDirectory` was used, this is the path to the folder.
     folder: []const u8 = "",
+
+    /// If `loadBundle` was used, this is the path to the bundle.
     bundle_file: []const u8 = "",
 
     normalise: Normalize,
+
+    /// Keeps a record of resources that been loaded with `loadResource`.
+    used_resources: ?std.AutoHashMapUnmanaged(u64, *const Resource),
 
     pub fn create(parent_allocator: Allocator) error{OutOfMemory}!*Resources {
         var arena = try parent_allocator.create(std.heap.ArenaAllocator);
@@ -47,7 +52,7 @@ pub const Resources = struct {
             .normalise = normalise,
             .by_uid = std.AutoHashMap(u64, *Resource).init(arena_allocator),
             .by_word = .empty,
-            .by_filename = .empty,
+            .by_sentence = .empty,
             .arena = arena,
             .arena_allocator = arena_allocator,
             .parent_allocator = parent_allocator,
@@ -76,7 +81,7 @@ pub const Resources = struct {
 
         // Relese the other indexes into the resources
         self.by_word.deinit(self.arena_allocator);
-        self.by_filename.deinit(self.arena_allocator);
+        self.by_sentence.deinit(self.arena_allocator);
         if (self.folder.len > 0) {
             self.arena_allocator.free(self.folder);
         }
@@ -132,7 +137,7 @@ pub const Resources = struct {
 
             try self.by_uid.put(r.uid, r);
             for (r.sentences.items) |sentence| {
-                self.by_filename.add(self.arena_allocator, sentence, r) catch |f| {
+                self.by_sentence.add(self.arena_allocator, sentence, r) catch |f| {
                     err("bundle contains invalid filename. {any}", .{f});
                     return error.InvalidBundleFile;
                 };
@@ -481,7 +486,7 @@ pub const Resources = struct {
             try self.by_uid.put(resource.uid, resource);
 
             // Lookup by filename or sentence
-            self.by_filename.add(
+            self.by_sentence.add(
                 self.arena_allocator,
                 file_info.name,
                 resource,
@@ -495,7 +500,7 @@ pub const Resources = struct {
             };
             for (resource.sentences.items) |sentence| {
                 if (!std.mem.eql(u8, file_info.name, sentence)) {
-                    self.by_filename.add(
+                    self.by_sentence.add(
                         self.arena_allocator,
                         sentence,
                         resource,
@@ -600,7 +605,8 @@ pub const Resources = struct {
         }
     }
 
-    /// Return all resources where either a sentence or filename associated
+    /// Return all resources which _exactly_ or _partially_ match a filename or
+    /// sentence in the metadata file.
     /// with a resource exactly matches. Full stops at the end of sentences.
     /// are ignored. Does not support searching for a single word inside a
     /// filename, use `search()` for single word keyword search.
@@ -608,7 +614,7 @@ pub const Resources = struct {
         self: *Resources,
         sentence: []const u8,
         category: SearchCategory,
-        partial_match: bool,
+        match: Match,
         results: *ArrayListUnmanaged(*Resource),
         allocator: Allocator,
     ) (error{OutOfMemory} || Error)!void {
@@ -635,10 +641,10 @@ pub const Resources = struct {
         const trimmed = sentence_trim(query);
 
         // Lookup by exact full filename (excluding extension and prefixes)
-        const search_results = self.by_filename.lookup(query);
+        const search_results = self.by_sentence.lookup(query);
         var trimmed_results: @TypeOf(search_results) = null;
         if (trimmed) |t|
-            trimmed_results = self.by_filename.lookup(t);
+            trimmed_results = self.by_sentence.lookup(t);
 
         if (search_results) |r| {
             for (r.exact_accented.items) |x| {
@@ -670,7 +676,7 @@ pub const Resources = struct {
             }
         }
 
-        if (partial_match) {
+        if (match == .partial) {
             if (search_results) |r| {
                 for (r.partial_match.items) |x| {
                     if (category.matches(x.resource))
@@ -707,7 +713,7 @@ pub const Resources = struct {
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(allocator);
 
-        try self.lookup(sentence, category, false, &results, allocator);
+        try self.lookup(sentence, category, .exact, &results, allocator);
         if (results.items.len == 0) {
             debug("lookupOne() name='{s}' found no results.", .{
                 sentence,
@@ -716,12 +722,6 @@ pub const Resources = struct {
         }
 
         const choose = random(results.items.len);
-        //debug("lookupOne() name='{s}' choosing resource {d} of {d}.", .{
-        //    sentence,
-        //    choose,
-        //    results.items.len,
-        //});
-
         return results.items[choose];
     }
 
@@ -1048,7 +1048,7 @@ test "read_extension" {
 test "resource init" {
     var resources = try Resources.create(std.testing.allocator);
     defer resources.destroy();
-    try expectEqual(0, resources.by_filename.slices.items.len);
+    try expectEqual(0, resources.by_sentence.slices.items.len);
     try expectEqual(0, resources.by_word.slices.items.len);
     try expectEqual(0, resources.by_uid.count());
     try expectEqual(0, resources.bundle_file.len);
@@ -1141,9 +1141,9 @@ test "search resources" {
 
     _ = try resources.loadDirectory(io, "./test/repo/", null);
 
-    //var i = resources.by_filename.index.keyIterator();
+    //var i = resources.by_sentence.index.keyIterator();
     //while (i.next()) |key| {
-    //    err("by_filename key = {s}", .{key.*});
+    //    err("by_sentence key = {s}", .{key.*});
     //}
 
     results.clearRetainingCapacity();
@@ -1151,16 +1151,16 @@ test "search resources" {
     try expectEqual(0, results.items.len);
 
     // Test files have this exact string
-    try expect(resources.by_filename.index.get("ασεἄρτο") == null);
-    try expect(resources.by_filename.index.get("ἄρτος") != null);
-    try expect(resources.by_filename.index.get("μάχαιρα") != null);
-    try expect(resources.by_filename.index.get("ὁ δαυὶδ λέγει") != null);
+    try expect(resources.by_sentence.index.get("ασεἄρτο") == null);
+    try expect(resources.by_sentence.index.get("ἄρτος") != null);
+    try expect(resources.by_sentence.index.get("μάχαιρα") != null);
+    try expect(resources.by_sentence.index.get("ὁ δαυὶδ λέγει") != null);
 
     // No test files have this exact string (only mid sentence)
-    try expect(resources.by_filename.index.get("δαυὶδ") == null);
-    try expect(resources.by_filename.index.get("δαυίδ") == null);
-    try expect(resources.by_filename.index.get("ὁ Δαυὶδ λέγει") == null);
-    try expect(resources.by_filename.index.get("ὁ Δαυὶδ λέγει·") == null);
+    try expect(resources.by_sentence.index.get("δαυὶδ") == null);
+    try expect(resources.by_sentence.index.get("δαυίδ") == null);
+    try expect(resources.by_sentence.index.get("ὁ Δαυὶδ λέγει") == null);
+    try expect(resources.by_sentence.index.get("ὁ Δαυὶδ λέγει·") == null);
 
     results.clearRetainingCapacity();
     try resources.lookup("fewhfoihsd4565", .any, true, &results, gpa);
@@ -1264,11 +1264,11 @@ test "bundle" {
         defer resources.destroy();
         _ = try resources.loadDirectory(io, "./test/repo/", null);
 
-        //var i = resources.by_filename.index.iterator();
+        //var i = resources.by_sentence.index.iterator();
         //while (i.next()) |r| {
         //    err("value >> {s}", .{r.value_ptr.*.keyword});
         //}
-        try expectEqual(231, resources.by_filename.index.count());
+        try expectEqual(231, resources.by_sentence.index.count());
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
@@ -1349,6 +1349,16 @@ pub const Options = struct {
         original,
         ogg,
     };
+};
+
+pub const Match = enum {
+    // Return all resources where every single word in the query string
+    // matches every single word in the resource filename/sentence in order.
+    exact,
+
+    // Match when each word in the query string is found in
+    // the resource filename/sentence.
+    partial,
 };
 
 const builtin = @import("builtin");
