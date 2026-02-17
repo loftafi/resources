@@ -167,7 +167,7 @@ pub const Resources = struct {
 
     // Save the `manifest` list of resources into a single data data file
     // with a table of contents.
-    pub fn save_bundle(
+    pub fn saveBundle(
         self: *Resources,
         io: std.Io,
         filename: []const u8,

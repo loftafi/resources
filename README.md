@@ -10,13 +10,13 @@ into a bundle for distribution.
 var bucket = try Resources.create(allocator);
 defer bucket.destroy();
 seed(); // If a uid is generated, make sure it is unique.
-_ = bucket.load_directory(folder) catch |e| {
+_ = bucket.loadDirectory(folder) catch |e| {
     std.debug.print("error {any} while loading {s}\n", .{ e, folder });
     return Error.FailedReadingRepo;
 };
 
 // Load a resource bundle of files.
-bucket.load_bundle("/path/to/bundle");
+bucket.loadBundle("/path/to/bundle");
 
 // Search for a resource by filename or word in a filename
 var results: std.ArrayListUnmanaged(*Resource) = .empty.
@@ -27,14 +27,14 @@ for (results.items) |resource| {
 }
 
 // Load a file from the resource bucket
-const data = resources.read_data(resource, allocator) catch |e| {
+const data = resources.loadResource(resource, allocator) catch |e| {
     if (e == error.OutOfMemory) return error.OutOfMemory;
     if (e == error.FileNotFound) return error.ResourceNotFound;
     return error.ResourceReadError;
 };
 
 // Save the contents of a list of resources into a bundle
-buket.save_bundle("/path/to/bundle", results);
+buket.saveBundle("/path/to/bundle", results);
 
 ```
 
