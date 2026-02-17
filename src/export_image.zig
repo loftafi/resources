@@ -101,7 +101,7 @@ pub fn exportImage(
         if (size.height > bounded.height)
             y = (size.height - bounded.height) / 2;
 
-        const cropped_img = crop_image(img, x, y, bounded.width, bounded.height);
+        const cropped_img = crop(img, x, y, bounded.width, bounded.height);
         img.deinit();
         img = cropped_img;
     }
@@ -201,7 +201,7 @@ pub fn fit(size: Size, preferred: Size) ?Size {
     return result;
 }
 
-fn crop_image(
+fn crop(
     img: Image,
     x: usize,
     y: usize,
@@ -218,13 +218,11 @@ fn crop_image(
     std.debug.assert(width * height * n == new_img.data.len);
 
     for (0..height) |row| {
-        for (0..width) |col| {
-            const src = (y + row) * img.width * n + (x + col) * n;
-            const dst = (row) * width * n + col * n;
-            for (0..n) |c| {
-                new_img.data[dst + c] = img.data[src + c];
-            }
-        }
+        const src = (y + row) * img.width * n + x * n;
+        const source = img.data[src .. src + new_img.bytes_per_row];
+        const dst = row * new_img.bytes_per_row;
+        const destination = new_img.data[dst .. dst + new_img.bytes_per_row];
+        @memcpy(destination, source);
     }
 
     return new_img;
