@@ -8,7 +8,7 @@
 /// When your app uses `lookup()` the resource uid is rememebered
 /// in the `used_resources`.
 ///
-/// After all resources are loaded using `loadResource()` use `save_bundle()`
+/// After all resources are loaded using `loadResource()` use `saveBundle()`
 /// to create place all used/needed  resources into a file bundle that you
 /// can later simply use `loadBundle()`.
 ///
@@ -1163,72 +1163,72 @@ test "search resources" {
     try expect(resources.by_sentence.index.get("ὁ Δαυὶδ λέγει·") == null);
 
     results.clearRetainingCapacity();
-    try resources.lookup("fewhfoihsd4565", .any, true, &results, gpa);
+    try resources.lookup("fewhfoihsd4565", .any, .partial, &results, gpa);
     try expectEqual(0, results.items.len);
-    try resources.lookup("GzeBWE", .any, true, &results, gpa);
+    try resources.lookup("GzeBWE", .any, .partial, &results, gpa);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("κρέα", .any, true, &results, gpa);
+    try resources.lookup("κρέα", .any, .partial, &results, gpa);
     try expectEqual(2, results.items.len);
     results.clearRetainingCapacity();
 
     // A wav file and an image file match this
-    try resources.lookup("μάχαιρα", .any, true, &results, gpa);
+    try resources.lookup("μάχαιρα", .any, .partial, &results, gpa);
     try expectEqual(2, results.items.len);
     results.clearRetainingCapacity();
 
-    try resources.lookup("μάχαιρα.", .any, true, &results, gpa);
+    try resources.lookup("μάχαιρα.", .any, .partial, &results, gpa);
     try expectEqual(2, results.items.len);
     results.clearRetainingCapacity();
 
-    try resources.lookup("ὁ δαυὶδ λέγει", .any, true, &results, gpa);
+    try resources.lookup("ὁ δαυὶδ λέγει", .any, .partial, &results, gpa);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("ὁ Δαυὶδ λέγει", .any, true, &results, gpa);
+    try resources.lookup("ὁ Δαυὶδ λέγει", .any, .partial, &results, gpa);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, true, &results, gpa);
+    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, .partial, &results, gpa);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, true, &results, gpa);
+    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, .partial, &results, gpa);
     try expectEqual(1, results.items.len);
 
     // Not the start of a sentence
     results.clearRetainingCapacity();
-    try resources.lookup("Δαυὶδ", .any, true, &results, gpa);
+    try resources.lookup("Δαυὶδ", .any, .partial, &results, gpa);
     try expectEqual(0, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("πτωχός", .any, true, &results, gpa);
+    try resources.lookup("πτωχός", .any, .partial, &results, gpa);
     try expectEqual(2, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("πτωχός.", .any, true, &results, gpa);
+    try resources.lookup("πτωχός.", .any, .partial, &results, gpa);
     try expectEqual(2, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος", .audio, true, &results, gpa);
+    try resources.lookup("ἄρτος", .audio, .partial, &results, gpa);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος.", .audio, true, &results, gpa);
+    try resources.lookup("ἄρτος.", .audio, .partial, &results, gpa);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος;", .audio, true, &results, gpa);
+    try resources.lookup("ἄρτος;", .audio, .partial, &results, gpa);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος", .image, true, &results, gpa);
+    try resources.lookup("ἄρτος", .image, .partial, &results, gpa);
     try expectEqual(0, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("γυναῖκας· βλέψατε!", .any, true, &results, gpa);
+    try resources.lookup("γυναῖκας· βλέψατε!", .any, .partial, &results, gpa);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("γυναῖκας· βλέψατε", .any, true, &results, gpa);
+    try resources.lookup("γυναῖκας· βλέψατε", .any, .partial, &results, gpa);
     try expectEqual(1, results.items.len);
 }
 
@@ -1273,12 +1273,12 @@ test "bundle" {
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
 
-        try resources.lookup("1122", .any, true, &results, gpa);
+        try resources.lookup("1122", .any, .partial, &results, gpa);
         //for (results.items) |r|
         //    for (r.sentences.items) |s|
         //        err("sentence >> {s}", .{s});
         try expectEqual(1, results.items.len);
-        try resources.lookup("2233", .any, true, &results, gpa);
+        try resources.lookup("2233", .any, .partial, &results, gpa);
         try expectEqual(2, results.items.len);
         try expectEqualStrings("1122", results.items[0].sentences.items[0]);
         try expectEqualStrings("2233", results.items[1].sentences.items[0]);
@@ -1287,7 +1287,7 @@ test "bundle" {
         data2 = try resources.loadResource(gpa, io, results.items[1]);
         try expectEqual(2, resources.used_resources.?.count());
 
-        try resources.save_bundle(
+        try resources.saveBundle(
             io,
             TEST_BUNDLE_FILENAME,
             resources.used_resources.?,
@@ -1307,11 +1307,11 @@ test "bundle" {
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
 
-        try resources.lookup("1122", .any, true, &results, gpa);
+        try resources.lookup("1122", .any, .partial, &results, gpa);
         try expectEqual(1, results.items.len);
-        try resources.lookup("2233", .any, true, &results, gpa);
+        try resources.lookup("2233", .any, .partial, &results, gpa);
         try expectEqual(2, results.items.len);
-        try resources.lookup("abcd", .any, true, &results, gpa);
+        try resources.lookup("abcd", .any, .partial, &results, gpa);
         try expectEqual(2, results.items.len);
         try expectEqualStrings("1122", results.items[0].sentences.items[0]);
         try expectEqualStrings("2233", results.items[1].sentences.items[0]);
@@ -1321,10 +1321,10 @@ test "bundle" {
         try expectEqual(2, resources.used_resources.?.count());
 
         results.clearRetainingCapacity();
-        try resources.lookup("1122.", .any, true, &results, gpa);
+        try resources.lookup("1122.", .any, .partial, &results, gpa);
         try expectEqual(1, results.items.len);
         results.clearRetainingCapacity();
-        try resources.lookup("1122·", .any, true, &results, gpa);
+        try resources.lookup("1122·", .any, .partial, &results, gpa);
         try expectEqual(1, results.items.len);
     }
     defer gpa.free(data1b);
