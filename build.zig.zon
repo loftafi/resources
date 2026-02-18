@@ -1,13 +1,13 @@
 .{
     .name = .resources,
-    .version = "0.9.0",
+    .version = "0.9.1",
     .fingerprint = 0xef66ebae23b04127,
     .minimum_zig_version = "0.15.2",
 
     .dependencies = .{
         .praxis = .{
-            .url = "git+https://github.com/loftafi/praxis.git#15961aa12dd184654a8217cdef1b3e03535f9123",
-            .hash = "praxis-0.5.5-FPf2Nen-BgDUSHamZvZIlljSj-E6Jl_1k4i01ZcB-IWN",
+            .url = "git+https://github.com/loftafi/praxis.git#6ca395cf15ebdd27b0eabb058c6cdc15e80099dc",
+            .hash = "praxis-0.5.6-FPf2Nen-BgBs2gGK1xUY4BzDnb8Si6we5Kjjj6lssI10",
         },
         .zg = .{
             .url = "git+https://codeberg.org/loftafi/zg-16.git#f2243a83dc0f46100ff60f92d87c83c6fc143fb1",
