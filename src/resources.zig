@@ -135,34 +135,76 @@ pub const Resources = struct {
             }
             r.bundle_offset = try rb.interface.takeInt(u64, e);
 
-            try self.by_uid.put(r.uid, r);
-            for (r.sentences.items) |sentence| {
-                self.by_sentence.add(self.arena_allocator, sentence, r) catch |f| {
-                    err("bundle contains invalid filename. {any}", .{f});
-                    return error.InvalidBundleFile;
-                };
-            }
-
-            var unique = UniqueWords.init(self.arena_allocator);
-            defer unique.deinit();
-            unique.addArray(&r.sentences.items) catch |f| {
-                err("bundle contains invalid filename. {any}", .{f});
-                return error.InvalidBundleFile;
-            };
-            var it = unique.words.iterator();
-            while (it.next()) |word| {
-                if (word.key_ptr.*.len > 0) {
-                    self.by_word.add(self.arena_allocator, word.key_ptr.*, r) catch |f| {
-                        err("bundle contains invalid filename. {any}", .{f});
-                        return error.InvalidBundleFile;
-                    };
-                } else {
-                    warn("empty sentence keyword in {s}\n", .{encode(u64, r.uid, buffer[0..40 :0])});
-                }
-            }
+            try self.registerResource(r, null);
         }
 
         self.bundle_file = try self.arena_allocator.dupe(u8, bundle_filename);
+    }
+
+    /// Internal function that adds a newly loaded resource into the indexes.
+    ///
+    ///  - `r` should contain a fully loaded resource
+    ///  - `filename` contains just the name part of a file with no extension,
+    ///    only if the resource was loaded from a file.
+    ///
+    pub fn registerResource(
+        self: *Resources,
+        r: *Resource,
+        filename: ?[]const u8,
+    ) error{ OutOfMemory, ReadMetadataFailed }!void {
+        if (self.by_uid.contains(r.uid)) {
+            err("duplicated uid {any}. bundle_offset={d} filename={s}\n", .{
+                uid_formatter(u64, r.uid),
+                r.bundle_offset orelse 0,
+                r.filename orelse "",
+            });
+            r.destroy(self.arena_allocator);
+            return;
+        }
+        try self.by_uid.put(r.uid, r);
+
+        if (filename != null) {
+            self.by_sentence.add(self.arena_allocator, filename.?, r) catch |e| {
+                err(
+                    "error: invalid metadata in file {any} {s} {any}\n",
+                    .{ r.uid, filename.?, e },
+                );
+                return error.ReadMetadataFailed;
+            };
+        }
+
+        for (r.sentences.items) |sentence| {
+            if (filename != null)
+                if (std.mem.eql(u8, filename.?, sentence))
+                    continue;
+            self.by_sentence.add(self.arena_allocator, sentence, r) catch |e| {
+                err("invalid metadata in resource {f}. bundle_offset={d} filename={s} Error: {any}\n", .{
+                    uid_formatter(u64, r.uid),
+                    r.bundle_offset orelse 0,
+                    r.filename orelse "",
+                    e,
+                });
+                return error.ReadMetadataFailed;
+            };
+        }
+
+        var unique = UniqueWords.init(self.arena_allocator);
+        defer unique.deinit();
+        unique.addArray(&r.sentences.items) catch |f| {
+            err("invalid sentence content. Resource: {f} Error: {any}", .{ uid_formatter(u64, r.uid), f });
+            return error.ReadMetadataFailed;
+        };
+        var it = unique.words.iterator();
+        while (it.next()) |word| {
+            if (word.key_ptr.*.len > 0) {
+                self.by_word.add(self.arena_allocator, word.key_ptr.*, r) catch |f| {
+                    err("bundle contains invalid filename. {any}", .{f});
+                    return error.ReadMetadataFailed;
+                };
+            } else {
+                warn("empty sentence keyword in {f}\n", .{uid_formatter(u64, r.uid)});
+            }
+        }
     }
 
     // Save the `manifest` list of resources into a single data data file
@@ -474,74 +516,7 @@ pub const Resources = struct {
                 continue;
             }
 
-            // Lookup by UID
-            if (self.by_uid.contains(resource.uid)) {
-                err("error: duplicated uid {any} file {s}\n", .{
-                    resource.uid,
-                    filename.items,
-                });
-                resource.destroy(self.arena_allocator);
-                continue;
-            }
-            try self.by_uid.put(resource.uid, resource);
-
-            // Lookup by filename or sentence
-            self.by_sentence.add(
-                self.arena_allocator,
-                file_info.name,
-                resource,
-            ) catch |e| {
-                err("error: invalid metadata in file {any} {s} {any}\n", .{
-                    resource.uid,
-                    filename.items,
-                    e,
-                });
-                return error.ReadMetadataFailed;
-            };
-            for (resource.sentences.items) |sentence| {
-                if (!std.mem.eql(u8, file_info.name, sentence)) {
-                    self.by_sentence.add(
-                        self.arena_allocator,
-                        sentence,
-                        resource,
-                    ) catch |e| {
-                        err("error: invalid metadata in file {any} {s} {any}\n", .{
-                            resource.uid,
-                            filename.items,
-                            e,
-                        });
-                        return error.ReadMetadataFailed;
-                    };
-                }
-            }
-
-            var unique = UniqueWords.init(self.arena_allocator);
-            defer unique.deinit();
-            try unique.addArray(&resource.sentences.items);
-            var it = unique.words.iterator();
-            while (it.next()) |word| {
-                if (word.key_ptr.*.len > 0) {
-                    self.by_word.add(
-                        self.arena_allocator,
-                        word.key_ptr.*,
-                        resource,
-                    ) catch |e| {
-                        err("error: invalid metadata in file {any} {s} {any}\n", .{
-                            resource.uid,
-                            filename.items,
-                            e,
-                        });
-                        return error.ReadMetadataFailed;
-                    };
-                } else {
-                    var buffer: [40:0]u8 = undefined;
-                    std.debug.print("empty sentence keyword in {s}\n", .{encode(
-                        u64,
-                        resource.uid,
-                        &buffer,
-                    )});
-                }
-            }
+            try self.registerResource(resource, file_info.name);
         }
 
         return true;
