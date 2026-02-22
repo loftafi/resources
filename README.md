@@ -53,3 +53,8 @@ This code is released under the terms of the MIT license. This
 code is useful for my purposes. No warrantee is given or implied
 that this library will be suitable for your purpose and no warantee
 is given or implied that this code is free from defects.
+
+This package depends upon third party libraries, with potentially
+different licences. See [praxis](https://github.com/loftafi/praxis),
+[zg](https://codeberg.org/atman/zg) and
+[zstbi](https://github.com/zig-gamedev/zstbi) for details.
