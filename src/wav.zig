@@ -10,6 +10,7 @@ pub const Engine = struct {
     /// Max value seen during audio import
     max: f64 = 0,
 
+    /// Setup an engine entity with a wav data file.
     pub fn initWithWav(allocator: Allocator, data: []const u8) (Allocator.Error || Error)!*Engine {
         var engine = try allocator.create(Engine);
         errdefer engine.destroy(allocator);
@@ -31,6 +32,7 @@ pub const Engine = struct {
         allocator.destroy(engine);
     }
 
+    /// Write out the current wav data to an output writer.
     pub fn write(e: *Engine, w: *std.Io.Writer) (std.Io.Writer.Error || Allocator.Error || Error)!void {
         try e.wav.?.write(w, e);
     }
@@ -39,11 +41,16 @@ pub const Engine = struct {
         engine.values.clearRetainingCapacity();
     }
 
-    pub inline fn ingest(e: *Engine, allocator: Allocator, n: f64) Allocator.Error!void {
+    /// Heoper function reads the next byte in a wav file and keeps
+    /// track of the maximum peak value.
+    inline fn ingest(e: *Engine, allocator: Allocator, n: f64) Allocator.Error!void {
         try e.values.append(allocator, @floatCast(n));
         e.max = @max(e.max, @abs(n));
     }
 
+    /// To prevent clicks and pops at the start and end of an audio file,
+    /// a fade in and fade out curve is applied at the start and end of
+    /// the file for this amount of time
     pub const fade_out_time: f64 = 0.02;
 
     /// Add a small fade in and fade out transition to the audio data.
@@ -111,6 +118,7 @@ pub const Engine = struct {
     }
 };
 
+/// The set of all potential errors that may be returned.
 pub const Error = error{
     not_wav_file,
     unsupported_wav_format,
@@ -375,6 +383,7 @@ pub const Wav = struct {
     }
 };
 
+/// Createe an empty placeholder 16 bit integer wav file.
 pub fn NewWave16BitInt(channels: u16, sampleRate: u32) *Wav {
     if (channels == 0 or sampleRate == 0)
         return Error.invalid_channel_metadata;
@@ -390,6 +399,7 @@ pub fn NewWave16BitInt(channels: u16, sampleRate: u32) *Wav {
     };
 }
 
+/// Createe an empty placeholder 32 bit floating point wav file.
 pub fn NewWave32BitFloat(channels: u16, sampleRate: u32) *Wav {
     if (channels == 0 or sampleRate == 0)
         return Error.invalid_channel_metadata;

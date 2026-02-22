@@ -100,7 +100,7 @@ pub const Resources = struct {
         io: std.Io,
         bundle_filename: []const u8,
     ) (Allocator.Error || std.Io.File.OpenError || Error || std.Io.Reader.Error || std.Io.Reader.Error)!void {
-        seed(io);
+        random.seed(io);
 
         var buffer: [300:0]u8 = undefined;
         var rbuffer: [4196:0]u8 = undefined;
@@ -154,7 +154,7 @@ pub const Resources = struct {
     ) error{ OutOfMemory, ReadMetadataFailed }!void {
         if (self.by_uid.contains(r.uid)) {
             err("duplicated uid {any}. bundle_offset={d} filename={s}\n", .{
-                uid_formatter(u64, r.uid),
+                base62.uid_writer(u64, r.uid),
                 r.bundle_offset orelse 0,
                 r.filename orelse "",
             });
@@ -179,7 +179,7 @@ pub const Resources = struct {
                     continue;
             self.by_sentence.add(self.arena_allocator, sentence, r) catch |e| {
                 err("invalid metadata in resource {f}. bundle_offset={d} filename={s} Error: {any}\n", .{
-                    uid_formatter(u64, r.uid),
+                    base62.uid_writer(u64, r.uid),
                     r.bundle_offset orelse 0,
                     r.filename orelse "",
                     e,
@@ -222,7 +222,7 @@ pub const Resources = struct {
         std.Io.File.Writer.Error || std.Io.Dir.OpenError || std.Io.Dir.RenameError ||
         std.Io.File.StatError || std.Io.Reader.LimitedAllocError ||
         std.Io.File.Reader.Error || error{FfmpegFailure} || wav.Error)!void {
-        seed(io);
+        random.seed(io);
 
         const cache_dir = std.Io.Dir.openDirAbsolute(io, cache, .{ .iterate = false }) catch |f| {
             err("Failed to access cache folder: {s} {any}", .{ cache, f });
@@ -241,7 +241,7 @@ pub const Resources = struct {
         var iterator = resources.valueIterator();
         while (iterator.next()) |r| {
             var resource: *const Resource = r.*;
-            const uid = encode(u64, resource.uid, &buff);
+            const uid = base62.encode(u64, resource.uid, &buff);
 
             if (header_contains(header_items.items, resource.uid)) {
                 debug("Skipping duplicated resource: uid={s}", .{uid});
@@ -370,7 +370,7 @@ pub const Resources = struct {
         const version = 1;
         var header: ArrayListUnmanaged(u8) = .empty;
         defer header.deinit(self.parent_allocator);
-        const b1 = @as(u8, @intCast(random(230) + 10));
+        const b1 = @as(u8, @intCast(random.random(230) + 10));
         try append_u8(&header, b1, self.parent_allocator);
         try append_u8(&header, b1 + 9, self.parent_allocator);
         try append_u8(&header, b1 + version, self.parent_allocator);
@@ -399,7 +399,7 @@ pub const Resources = struct {
 
         // Add the files
         for (header_items.items) |item| {
-            const uid = encode(u64, item.uid, &buff);
+            const uid = base62.encode(u64, item.uid, &buff);
             var data: []const u8 = &.{};
             if (item.cached) {
                 const cache_name = try std.fmt.bufPrint(&buff2, "{s}.{s}", .{ uid, item.type.extension() });
@@ -535,8 +535,8 @@ pub const Resources = struct {
         var ubuffer: [40:0]u8 = undefined; // 40 for UID, more for file extension
         var buffer: [50:0]u8 = undefined; // 40 for UID, more for file extension
         while (true) {
-            const uid = random_u64();
-            const uid_string = encode(u64, uid, &ubuffer);
+            const uid = random.random_u64();
+            const uid_string = base62.encode(u64, uid, &ubuffer);
             const filename = std.fmt.bufPrint(&buffer, "{s}.txt", .{uid_string}) catch |e| {
                 log.warn("unique_random_u64 has unexpected exception: {any}", .{e});
                 unreachable;
@@ -696,7 +696,7 @@ pub const Resources = struct {
             return null;
         }
 
-        const choose = random(results.items.len);
+        const choose = random.random(results.items.len);
         return results.items[choose];
     }
 
@@ -915,7 +915,7 @@ pub fn write_folder_file_bytes(
     data: []const u8,
 ) (Allocator.Error || std.Io.Writer.Error || std.Io.File.OpenError || std.Io.Dir.RenameError || std.Io.File.Writer.Error)!void {
     var buffer: [16]u8 = undefined;
-    const tmp_filename = random_string(&buffer);
+    const tmp_filename = random.random_string(&buffer);
     const file = folder.createFile(io, tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
         err("Failed to open file for writing: {s}. {any}", .{ filename, e });
         return e;
@@ -1351,12 +1351,7 @@ const settings = @import("settings.zig");
 pub const Setting = settings.Setting;
 pub const UniqueWords = @import("unique_words.zig").UniqueWords;
 pub const WordFinder = @import("word_finder.zig").WordFinder;
-pub const encode_uid = @import("base62.zig").encode;
-pub const decode_uid = @import("base62.zig").decode;
-pub const seed = @import("random.zig").seed;
-pub const random = @import("random.zig").random;
-pub const random_u64 = @import("random.zig").random_u64;
-pub const random_string = @import("random.zig").random_string;
+pub const random = @import("random.zig");
 pub const Resource = @import("resource.zig").Resource;
 pub const exportImage = @import("export_image.zig").exportImage;
 
@@ -1371,11 +1366,11 @@ const max_word_size = @import("praxis").max_word_size;
 const generate_ogg_audio = @import("export_audio.zig").generate_ogg_audio;
 const Size = @import("export_image.zig").Size;
 
-const wav = @import("wav.zig");
+pub const wav = @import("wav.zig");
 
-const encode = @import("base62.zig").encode;
-const decode = @import("base62.zig").decode;
+pub const base62 = @import("base62.zig");
 const uid_formatter = @import("base62.zig").uid_writer;
+
 const BinaryReader = @import("binary_reader.zig");
 const BinaryWriter = @import("binary_writer.zig");
 const append_u64 = BinaryWriter.append_u64;

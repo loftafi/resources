@@ -2,6 +2,7 @@
 
 pub const Self = @This();
 
+/// Describes an individual metadata entry in a metadata file.
 pub const Setting = struct {
     setting: Type,
     value: []const u8,

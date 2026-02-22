@@ -1,3 +1,4 @@
+/// Count the appearance of  individual unique words sentences,
 pub const UniqueWords = struct {
     words: std.StringHashMap(void) = undefined,
 
@@ -11,6 +12,8 @@ pub const UniqueWords = struct {
         self.words.deinit();
     }
 
+    /// Check an individual sentence for the appearance of unique
+    /// words in this sentence.
     pub fn add(self: *UniqueWords, sentence: []const u8) error{ OutOfMemory, Utf8EncodesSurrogateHalf, Utf8CodepointTooLarge, Utf8OverlongEncoding, Utf8ExpectedContinuation, Utf8InvalidStartByte }!void {
         var words = WordFinder.init(sentence);
         while (try words.next()) |word| {
@@ -18,6 +21,8 @@ pub const UniqueWords = struct {
         }
     }
 
+    /// Check a set of sentence for the appearance of unique
+    /// words in these sentence.
     pub fn addArray(self: *UniqueWords, sentences: *[][]const u8) error{ OutOfMemory, Utf8EncodesSurrogateHalf, Utf8CodepointTooLarge, Utf8OverlongEncoding, Utf8ExpectedContinuation, Utf8InvalidStartByte }!void {
         for (sentences.*) |sentence| {
             var words = WordFinder.init(sentence);
@@ -27,10 +32,12 @@ pub const UniqueWords = struct {
         }
     }
 
+    /// Report how many unique words have been found.
     pub fn count(self: *UniqueWords) usize {
         return self.words.count();
     }
 
+    /// Check if a word has appeared in previously seen sentences.
     pub fn contains(self: *UniqueWords, key: []const u8) bool {
         return self.words.contains(key);
     }

@@ -1,13 +1,14 @@
-//! A simple random number generator useful for games that do not need
-//! cryptographically secure random numbers.
+//! A simple random number generator useful when there is no need to
+//! to depend upon slower more complex random number algorithms.
 
+/// Holds the next value in the random number sequence.
 var value: usize = 99;
+
+/// Track if seeding has occurred.
 var seeded: bool = false;
 
 /// Return a number greater than zero, and less than the `limit`. Call `seed()`
 /// first if you do not want a predictable sequence of numbers.
-///
-/// This is _not_ cryptographically secure.
 pub fn random(limit: usize) usize {
     if (limit == 0) return 0;
 
@@ -17,6 +18,26 @@ pub fn random(limit: usize) usize {
     return value % limit;
 }
 
+/// Return a random u24 value. Call `seed(io)` first if you do
+/// not want a predictable number sequence.
+pub inline fn random_u24() u24 {
+    return @intCast(random(std.math.maxInt(u24)));
+}
+
+/// Return a random u16 value. Call `seed(io)` first if
+/// you do not want a predictable number sequence.
+pub inline fn random_u16() u16 {
+    return @intCast(random(std.math.maxInt(u16)));
+}
+
+/// Return a random u64 value. Call `seed(io)` first if you
+/// do not want a predictable number sequence.
+pub inline fn random_u64() u64 {
+    return @as(u64, random(std.math.maxInt(u64)));
+}
+
+/// Fill a `buffer` with random uppercase letters, lowercase
+/// letters, and numbers.
 pub fn random_string(buffer: []u8) []const u8 {
     for (0..buffer.len) |i| {
         buffer[i] = @as(u8, @intCast(switch (random(26 + 26 + 10)) {
@@ -27,14 +48,6 @@ pub fn random_string(buffer: []u8) []const u8 {
         }));
     }
     return buffer[0..buffer.len];
-}
-
-/// Return a random u64 value. Call `seed()` first if you do not want a
-/// predictable number sequence.
-///
-/// This is _not_ cryptographically secure.
-pub inline fn random_u64() u64 {
-    return @as(u64, random(std.math.maxInt(u64)));
 }
 
 /// Seed the random number generator with the current time

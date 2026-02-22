@@ -1,4 +1,5 @@
-/// Supported resource file types
+/// A list of file types that are recognised and allowed to be
+/// imported or exported by the `Resources` manager
 pub const Type = enum(u8) {
     unknown = 0,
     wav = 1,
