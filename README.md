@@ -1,7 +1,9 @@
 # Resources
 
 This zig module supports loading, searching, and bundling resources
-into a bundle for distribution.
+into a bundle for distribution. The Zig
+[API documentation](https://loftafi.github.io/resources/docs/) is available
+[here](https://loftafi.github.io/resources/docs/)
 
 ## Example usage
 
