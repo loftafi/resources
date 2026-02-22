@@ -1309,30 +1309,46 @@ test "bundle" {
     try expectEqualStrings(data2, data2b);
 }
 
+/// `saveBundle` is provided with these `Options` to govern what processing
+/// should be done on files when a resource bundle is being created.
 pub const Options = struct {
+    /// Request that audio files are included as is, or request that `wav`
     audio: AudioOption = .original,
+    /// Request the exact `original` image, or request conversion to `jpg`
     image: ImageOption = .original,
+
+    /// Normalise audio files for consistent volume.
     normalise_audio: bool = false,
+
+    /// Reduce the size of any image that is wider orhigher than this limit.
     max_image_size: Size = .{ .width = 10000, .height = 10000 },
 
+    /// Request the exact `original` image, or request conversion to `jpg`
     pub const ImageOption = enum {
+        /// Do not convert images to jpg.
         original,
+        /// Convert images to jpg.
         jpg,
     };
 
+    /// Request that audio files are included as is, or request that `wav`
+    /// files should be converted to `ogg` files.
     pub const AudioOption = enum {
+        /// Do not process audio files.
         original,
+        /// Normalise and convert `wav` files to `ogg` files.
         ogg,
     };
 };
 
+/// Used to indicate if a partial or exact search match is needed.
 pub const Match = enum {
-    // Return all resources where every single word in the query string
-    // matches every single word in the resource filename/sentence in order.
+    /// Return all resources where every single word in the query string
+    /// matches every single word in the resource filename/sentence in order.
     exact,
 
-    // Match when each word in the query string is found in
-    // the resource filename/sentence.
+    /// Match when each word in the query string is found in
+    /// the resource filename/sentence.
     partial,
 };
 
