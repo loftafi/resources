@@ -28,6 +28,9 @@ pub const Resources = struct {
     arena_allocator: Allocator,
     parent_allocator: Allocator,
 
+    /// A helper that normalises a word or phrase into an internal buffer.
+    normaliser: Normaliser,
+
     /// If `loadDirectory` was used, this is the path to the folder.
     folder: []const u8 = "",
 
@@ -53,6 +56,7 @@ pub const Resources = struct {
             .by_uid = std.AutoHashMap(u64, *Resource).init(arena_allocator),
             .by_word = .empty,
             .by_sentence = .empty,
+            .normaliser = .empty,
             .arena = arena,
             .arena_allocator = arena_allocator,
             .parent_allocator = parent_allocator,
@@ -66,6 +70,7 @@ pub const Resources = struct {
 
     pub fn destroy(self: *Resources) void {
         self.normalise.deinit(self.arena_allocator);
+        self.normaliser.deinit(self.parent_allocator);
 
         if (self.used_resources) |*manifest| {
             manifest.deinit(self.arena_allocator);
@@ -602,9 +607,7 @@ pub const Resources = struct {
             warn("lookup expects nfc encoding.", .{});
         }
 
-        var unaccented = BoundedArray(u8, max_word_size){};
-        var normalised = BoundedArray(u8, max_word_size){};
-        normalise_word(sentence_nfc.slice, &unaccented, &normalised) catch |f| {
+        const info = self.normaliser.normalise(sentence_nfc.slice) catch |f| {
             if (f == error.EmptyWord) return error.QueryEmpty;
             if (f == error.WordTooLong) return error.QueryTooLong;
             if (f == error.Overflow) return error.QueryTooLong;
@@ -616,8 +619,8 @@ pub const Resources = struct {
             unreachable; // unexpected error returned
         };
 
-        const query = normalised.slice();
-        const trimmed = sentence_trim(query);
+        const query = info.accented;
+        const trimmed = sentence_trim(info.accented);
 
         // Lookup by exact full filename (excluding extension and prefixes)
         const search_results = try self.by_sentence.lookup(query);
@@ -639,8 +642,8 @@ pub const Resources = struct {
             }
         }
 
-        if (results.items.len == 0) {
-            if (search_results) |r| {
+        if (match == .unaccented) {
+            if (try self.by_sentence.lookup(info.unaccented)) |r| {
                 for (r.exact_unaccented.items) |x| {
                     if (category.matches(x.resource))
                         try append_if_not_found(results, allocator, x);
@@ -1047,8 +1050,6 @@ test "read_extension" {
 test "resource init" {
     var resources = try Resources.create(std.testing.allocator);
     defer resources.destroy();
-    try expectEqual(0, resources.by_sentence.slices.items.len);
-    try expectEqual(0, resources.by_word.slices.items.len);
     try expectEqual(0, resources.by_uid.count());
     try expectEqual(0, resources.bundle_file.len);
 }
@@ -1153,13 +1154,13 @@ test "search resources" {
     try expect(resources.by_sentence.index.get("ασεἄρτο") == null);
     try expect(resources.by_sentence.index.get("ἄρτος") != null);
     try expect(resources.by_sentence.index.get("μάχαιρα") != null);
-    try expect(resources.by_sentence.index.get("ὁ δαυὶδ λέγει") != null);
+    try expect(resources.by_sentence.index.get("ὁ δαυίδ λέγει") != null);
 
     // No test files have this exact string (only mid sentence)
     try expect(resources.by_sentence.index.get("δαυὶδ") == null);
     try expect(resources.by_sentence.index.get("δαυίδ") == null);
-    try expect(resources.by_sentence.index.get("ὁ Δαυὶδ λέγει") == null);
-    try expect(resources.by_sentence.index.get("ὁ Δαυὶδ λέγει·") == null);
+    try expect(resources.by_sentence.index.get("ὁ Δαυίδ λέγει") == null);
+    try expect(resources.by_sentence.index.get("ὁ Δαυίδ λέγει·") == null);
 
     results.clearRetainingCapacity();
     try resources.lookup("fewhfoihsd4565", .any, .partial, &results, gpa);
@@ -1388,6 +1389,9 @@ pub const Match = enum {
     /// matches every single word in the resource filename/sentence in order.
     exact,
 
+    /// All search results when a match occurs with or without accent.
+    unaccented,
+
     /// Match when each word in the query string is found in
     /// the resource filename/sentence.
     partial,
@@ -1417,7 +1421,7 @@ pub const FileType = @import("root.zig").FileType;
 const Parser = @import("praxis").Parser;
 const BoundedArray = @import("praxis").BoundedArray;
 const SearchIndex = @import("praxis").SearchIndex;
-const normalise_word = @import("praxis").normalise_word;
+const Normaliser = @import("praxis").normaliser.Normaliser;
 const max_word_size = @import("praxis").max_word_size;
 
 const generate_ogg_audio = @import("export_audio.zig").generate_ogg_audio;
