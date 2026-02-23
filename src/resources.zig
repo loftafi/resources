@@ -174,9 +174,8 @@ pub const Resources = struct {
         }
 
         for (r.sentences.items) |sentence| {
-            if (filename != null)
-                if (std.mem.eql(u8, filename.?, sentence))
-                    continue;
+            if (filename != null and std.mem.eql(u8, filename.?, sentence))
+                continue;
             self.by_sentence.add(self.arena_allocator, sentence, r) catch |e| {
                 err("invalid metadata in resource {f}. bundle_offset={d} filename={s} Error: {any}\n", .{
                     base62.uid_writer(u64, r.uid),
@@ -466,7 +465,7 @@ pub const Resources = struct {
             }
 
             if (file_info.extension == .unknown) {
-                if (!std.mem.endsWith(u8, file.name, ".txt"))
+                if (!std.mem.endsWith(u8, file.name, ".txt") and !ignore_file(file.name))
                     err("skipping unhandled file {s} ({s} {s})", .{
                         file.name,
                         file_info.name,
@@ -991,6 +990,12 @@ fn load_file_byte_slice(
     return reader.interface.readAlloc(allocator, size);
 }
 
+fn ignore_file(text: []const u8) bool {
+    if (std.mem.eql(u8, ".gitignore", text)) return true;
+    if (std.mem.eql(u8, ".DS_Store", text)) return true;
+    return false;
+}
+
 test "test_load_file_bytes" {
     const data = try load_file_bytes(std.testing.allocator, std.testing.io, "./test/test.txt");
     defer std.testing.allocator.free(data);
@@ -1247,6 +1252,20 @@ test "bundle" {
         try resources.lookup("ὁ μικρὸς οἶκος", .any, .exact, &results, gpa);
         try expectEqual(1, results.items.len);
         try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
+        results.clearRetainingCapacity();
+
+        try resources.lookup("ὁ μικρὸς οἶκος", .png, .exact, &results, gpa);
+        try expectEqual(1, results.items.len);
+        try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
+        results.clearRetainingCapacity();
+
+        try resources.lookup("ὁ μικρὸς οἶκος", .image, .exact, &results, gpa);
+        try expectEqual(1, results.items.len);
+        try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
+        results.clearRetainingCapacity();
+
+        try resources.lookup("ὁ μικρὸς οἶκος", .wav, .exact, &results, gpa);
+        try expectEqual(0, results.items.len);
         results.clearRetainingCapacity();
 
         try resources.lookup("μικρὸς οἶκος", .any, .exact, &results, gpa);

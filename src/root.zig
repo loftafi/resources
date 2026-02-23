@@ -5,11 +5,7 @@ pub const ScaleMode = @import("resources.zig").ScaleMode;
 pub const Setting = @import("resources.zig").Setting;
 pub const UniqueWords = @import("resources.zig").UniqueWords;
 pub const FileType = @import("file_type.zig").Type;
+pub const Match = @import("resources.zig").Match;
 
-pub const seed = @import("resources.zig").seed;
-pub const random = @import("resources.zig").random;
-pub const random_u64 = @import("resources.zig").random_u64;
-pub const encode_uid = @import("resource.zig").encode_uid;
-pub const dencode_uid = @import("resource.zig").decode_uid;
-pub const encode_writer = @import("base62.zig").encode_writer;
-pub const uid_writer = @import("base62.zig").uid_writer;
+pub const base62 = @import("base62.zig");
+pub const random = @import("random.zig");
