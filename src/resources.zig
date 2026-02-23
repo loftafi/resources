@@ -561,7 +561,7 @@ pub const Resources = struct {
         allocator: Allocator,
     ) !void {
         for (keywords) |keyword| {
-            const r = self.by_word.lookup(keyword);
+            const r = try self.by_word.lookup(keyword);
             if (r != null) {
                 for (r.?.exact_accented.items) |x| {
                     if (category.matches(x.resource)) {
@@ -597,6 +597,11 @@ pub const Resources = struct {
         // Normalise to nfc and normalise the characters with index rules.
         const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
         defer sentence_nfc.deinit(self.parent_allocator);
+
+        if (sentence.len != sentence_nfc.slice.len) {
+            warn("lookup expects nfc encoding.", .{});
+        }
+
         var unaccented = BoundedArray(u8, max_word_size){};
         var normalised = BoundedArray(u8, max_word_size){};
         normalise_word(sentence_nfc.slice, &unaccented, &normalised) catch |f| {
@@ -615,10 +620,10 @@ pub const Resources = struct {
         const trimmed = sentence_trim(query);
 
         // Lookup by exact full filename (excluding extension and prefixes)
-        const search_results = self.by_sentence.lookup(query);
+        const search_results = try self.by_sentence.lookup(query);
         var trimmed_results: @TypeOf(search_results) = null;
         if (trimmed) |t|
-            trimmed_results = self.by_sentence.lookup(t);
+            trimmed_results = try self.by_sentence.lookup(t);
 
         if (search_results) |r| {
             for (r.exact_accented.items) |x| {
@@ -797,6 +802,7 @@ pub const Resources = struct {
         BundleTooShortToExtractFile,
         UnknownImageOrientation,
         ImageConversionError,
+        NormalisationFailed,
     };
 };
 
@@ -994,6 +1000,19 @@ fn ignore_file(text: []const u8) bool {
     if (std.mem.eql(u8, ".gitignore", text)) return true;
     if (std.mem.eql(u8, ".DS_Store", text)) return true;
     return false;
+}
+
+test "nfc_normalisation" {
+    const allocator = std.testing.allocator;
+
+    var resources = try Resources.create(allocator);
+    defer resources.destroy();
+
+    const data = "ὁ μικρὸς οἶκος";
+    const data_nfc = try resources.normalise.nfc(allocator, data);
+    defer data_nfc.deinit(allocator);
+
+    try expectEqualStrings(data, data_nfc.slice);
 }
 
 test "test_load_file_bytes" {
