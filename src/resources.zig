@@ -1239,19 +1239,22 @@ test "bundle" {
         defer resources.destroy();
         _ = try resources.loadDirectory(io, "./test/repo/", null);
 
-        //var i = resources.by_sentence.index.iterator();
-        //while (i.next()) |r| {
-        //    err("value >> {s}", .{r.value_ptr.*.keyword});
-        //}
-        try expectEqual(231, resources.by_sentence.index.count());
+        try expectEqual(297, resources.by_sentence.index.count());
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
 
+        try resources.lookup("ὁ μικρὸς οἶκος", .any, .exact, &results, gpa);
+        try expectEqual(1, results.items.len);
+        try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
+        results.clearRetainingCapacity();
+
+        try resources.lookup("μικρὸς οἶκος", .any, .exact, &results, gpa);
+        try expectEqual(1, results.items.len);
+        try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
+        results.clearRetainingCapacity();
+
         try resources.lookup("1122", .any, .partial, &results, gpa);
-        //for (results.items) |r|
-        //    for (r.sentences.items) |s|
-        //        err("sentence >> {s}", .{s});
         try expectEqual(1, results.items.len);
         try resources.lookup("2233", .any, .partial, &results, gpa);
         try expectEqual(2, results.items.len);
