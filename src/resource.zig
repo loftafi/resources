@@ -78,8 +78,7 @@ pub const Resource = struct {
         self.resource = file_type;
 
         if (file_type == .wav) {
-            if (try extract_wav_name(gpa, file_name)) |sentence| {
-                defer gpa.free(sentence);
+            if (extract_wav_name(file_name)) |sentence| {
                 const sentence_nfc = try normalise.nfc(gpa, sentence);
                 defer sentence_nfc.deinit(gpa);
                 try self.add_sentence(arena, sentence_nfc.slice);
@@ -236,7 +235,7 @@ fn remove_extension(path: []const u8) []const u8 {
 
 /// Wav files don't have metadata files, so the metadata is extracted
 /// from the file name itself.
-fn extract_wav_name(allocator: Allocator, file: []const u8) error{OutOfMemory}!?[]const u8 {
+fn extract_wav_name(file: []const u8) ?[]const u8 {
     var start: usize = file.len;
     var end: usize = file.len;
 
@@ -269,7 +268,7 @@ fn extract_wav_name(allocator: Allocator, file: []const u8) error{OutOfMemory}!?
         std.debug.assert(start <= end);
     }
 
-    return try allocator.dupe(u8, name);
+    return name;
 }
 
 test "remove_extension" {
@@ -306,65 +305,55 @@ test "wav_filename" {
     defer resources.destroy();
 
     {
-        const name = try extract_wav_name(allocator, "fish9.wav");
-        defer allocator.free(name.?);
+        const name = extract_wav_name("fish9.wav");
         try expectEqualStrings("fish", name.?);
     }
     {
-        const name = try extract_wav_name(allocator, "fish9");
-        defer allocator.free(name.?);
+        const name = extract_wav_name("fish9");
         try expectEqualStrings("fish", name.?);
     }
     {
-        const name = try extract_wav_name(allocator, "fish");
-        defer allocator.free(name.?);
+        const name = extract_wav_name("fish");
         try expectEqualStrings("fish", name.?);
     }
     {
-        const name = try extract_wav_name(allocator, "fish.wav");
-        defer allocator.free(name.?);
+        const name = extract_wav_name("fish.wav");
         try expectEqualStrings("fish", name.?);
     }
     {
-        const name = try extract_wav_name(allocator, "/bin/fish.wav");
-        defer allocator.free(name.?);
+        const name = extract_wav_name("/bin/fish.wav");
         try expectEqualStrings("fish", name.?);
     }
     {
-        const name = try extract_wav_name(allocator, "./bin/fish.wav");
-        defer allocator.free(name.?);
+        const name = extract_wav_name("./bin/fish.wav");
         try expectEqualStrings("fish", name.?);
     }
     {
-        const name = try extract_wav_name(allocator, "c:\\bin\\fish.wav");
-        defer allocator.free(name.?);
+        const name = extract_wav_name("c:\\bin\\fish.wav");
         try expectEqualStrings("fish", name.?);
     }
     {
-        const name = try extract_wav_name(allocator, "ἀρτος.wav");
-        defer allocator.free(name.?);
+        const name = extract_wav_name("ἀρτος.wav");
         try expectEqualStrings("ἀρτος", name.?);
     }
     {
-        const name = try extract_wav_name(allocator, "jay~ἀρτος.wav");
-        defer allocator.free(name.?);
+        const name = extract_wav_name("jay~ἀρτος.wav");
         try expectEqualStrings("ἀρτος", name.?);
     }
     {
-        const name = try extract_wav_name(allocator, "jay~ἀρτος~2.wav");
+        const name = extract_wav_name("jay~ἀρτος~2.wav");
         try expectEqual(null, name);
     }
     {
-        const name = try extract_wav_name(allocator, "jay2~ἀρτος~2.wav");
+        const name = extract_wav_name("jay2~ἀρτος~2.wav");
         try expectEqual(null, name);
     }
     {
-        const name = try extract_wav_name(allocator, "other~ἀρτος~2.wav");
+        const name = extract_wav_name("other~ἀρτος~2.wav");
         try expectEqual(null, name);
     }
     {
-        const name = try extract_wav_name(allocator, "other~ἀρτος.wav");
-        defer allocator.free(name.?);
+        const name = extract_wav_name("other~ἀρτος.wav");
         try expectEqualStrings("ἀρτος", name.?);
     }
 }
