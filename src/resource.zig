@@ -84,7 +84,7 @@ pub const Resource = struct {
                 try self.add_sentence(arena, sentence_nfc.slice);
             }
         } else {
-            try self.add_sentence(arena, file_name);
+            //try self.add_sentence(arena, file_name);
         }
 
         // Check if there is a metadata file to load.
@@ -96,6 +96,8 @@ pub const Resource = struct {
                 self.visible = true;
                 if (self.uid == 0 and file_type == .wav) {
                     self.uid = try hash_uid(io, file_name, filename);
+                    //var buffer: [40:0]u8 = undefined;
+                    //try self.add_sentence(arena, encode_uid(u64, self.uid, &buffer));
                 }
                 return;
             } else {

@@ -192,6 +192,21 @@ pub const Resources = struct {
             };
         }
 
+        // Insert the resource UID as the last sentence, so that we can search
+        // by UID. Insert last so that it is never the first sentence displayed
+        // in the UI.
+        var buffer: [40:0]u8 = undefined;
+        const uid_string = base62.encode(u64, r.uid, &buffer);
+        self.by_sentence.add(self.arena_allocator, uid_string, r) catch |e| {
+            err("Error adding resource {f} uid sentence. bundle_offset={d} filename={s} Error: {any}\n", .{
+                base62.uid_writer(u64, r.uid),
+                r.bundle_offset orelse 0,
+                r.filename orelse "",
+                e,
+            });
+            return error.ReadMetadataFailed;
+        };
+
         var unique = UniqueWords.init(self.arena_allocator);
         defer unique.deinit();
         unique.addArray(&r.sentences.items) catch |f| {
@@ -325,22 +340,32 @@ pub const Resources = struct {
                 continue;
             }
 
-            var names = resource.sentences.items;
-            if (names.len > 254) {
-                names = resource.sentences.items[0..254];
-                err("Sentence was shortened to 255 characters. uid={s} type={t}", .{ uid, resource.resource });
+            // Up to 254 sentences go into the bundle, except the UID sentence.
+            var buffer: [40:0]u8 = undefined;
+            const uid_string = base62.encode(u64, resource.uid, &buffer);
+            var sentences: ArrayListUnmanaged([]const u8) = .empty;
+            defer sentences.deinit(self.parent_allocator);
+            for (resource.sentences.items, 0..) |sentence, count| {
+                if (std.mem.eql(u8, uid_string, sentence)) continue;
+                if (count > 254) {
+                    err("Sentence list was shortened to 254 sentences. uid={s} type={t}", .{ uid, resource.resource });
+                    break;
+                }
+                // Sentence has a maximum length of 254 characters.
+                var name = sentence;
+                if (name.len > 254) {
+                    name = name[0..254];
+                    err("Sentence was shortened to 255 characters. uid={s} type={t}", .{ uid, resource.resource });
+                }
+                try sentences.append(self.parent_allocator, name);
             }
 
-            if (names.len == 0) {
+            if (sentences.items.len == 0) {
                 err("Resource has no sentences: uid={s} type={t}", .{ uid, resource.resource });
                 continue;
             }
 
-            if (names.len > std.math.maxInt(u8)) {
-                err("Resource has no sentences: uid={s} type={t}", .{ uid, resource.resource });
-                continue;
-            }
-
+            const names = try sentences.toOwnedSlice(self.parent_allocator);
             try header_items.append(self.parent_allocator, .{
                 .uid = resource.uid,
                 .type = add_type,
@@ -390,6 +415,7 @@ pub const Resources = struct {
                 try append_u8(&header, @as(u8, @intCast(sentence.len)), self.parent_allocator);
                 try header.appendSlice(self.parent_allocator, sentence);
             }
+            self.parent_allocator.free(item.names);
             try append_u64(&header, header_size + item.file_index, self.parent_allocator);
         }
 
@@ -1098,9 +1124,9 @@ test "load_resource image" {
     try expectEqual(true, resource.visible);
     try expectEqualStrings("jay", resource.copyright.?);
     //for (resource.sentences.items) |s| std.log.err("sentence >> {s}", .{s});
-    try expectEqual(4, resource.sentences.items.len);
-    try expectEqualStrings("GzeBWE", resource.sentences.items[0]);
-    try expectEqualStrings("κρέα", resource.sentences.items[1]);
+    try expectEqual(3, resource.sentences.items.len);
+    try expectEqualStrings("κρέα", resource.sentences.items[0]);
+    try expectEqualStrings("τὰ κρέα", resource.sentences.items[1]);
 }
 
 test "load_resource audio" {
@@ -1264,7 +1290,7 @@ test "bundle" {
         defer resources.destroy();
         _ = try resources.loadDirectory(io, "./test/repo/", null);
 
-        try expectEqual(297, resources.by_sentence.index.count());
+        try expectEqual(339, resources.by_sentence.index.count());
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
@@ -1293,12 +1319,15 @@ test "bundle" {
         try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
         results.clearRetainingCapacity();
 
-        try resources.lookup("1122", .any, .partial, &results, gpa);
+        try resources.lookup("myxml1", .any, .partial, &results, gpa);
         try expectEqual(1, results.items.len);
-        try resources.lookup("2233", .any, .partial, &results, gpa);
+        try expectEqualStrings("myxml1", results.items[0].sentences.items[0]);
+        try expectEqualStrings("my xml 1", results.items[0].sentences.items[1]);
+
+        try resources.lookup("myxml2", .any, .partial, &results, gpa);
         try expectEqual(2, results.items.len);
-        try expectEqualStrings("1122", results.items[0].sentences.items[0]);
-        try expectEqualStrings("2233", results.items[1].sentences.items[0]);
+        try expectEqualStrings("myxml2", results.items[1].sentences.items[0]);
+        try expectEqualStrings("abcd", results.items[1].sentences.items[1]);
         data1 = try resources.loadResource(gpa, io, results.items[0]);
         try expectEqual(1, resources.used_resources.?.count());
         data2 = try resources.loadResource(gpa, io, results.items[1]);
@@ -1328,10 +1357,12 @@ test "bundle" {
         try expectEqual(1, results.items.len);
         try resources.lookup("2233", .any, .partial, &results, gpa);
         try expectEqual(2, results.items.len);
+        // abcd is already in the results list, so no new results should be added.
         try resources.lookup("abcd", .any, .partial, &results, gpa);
         try expectEqual(2, results.items.len);
-        try expectEqualStrings("1122", results.items[0].sentences.items[0]);
-        try expectEqualStrings("2233", results.items[1].sentences.items[0]);
+
+        try expectEqualStrings("myxml1", results.items[0].sentences.items[0]);
+        try expectEqualStrings("myxml2", results.items[1].sentences.items[0]);
         data1b = try resources.loadResource(gpa, io, results.items[0]);
         try expectEqual(1, resources.used_resources.?.count());
         data2b = try resources.loadResource(gpa, io, results.items[1]);
