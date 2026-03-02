@@ -126,7 +126,7 @@ pub fn pipe_data(
     defer multi_reader.deinit();
 
     const timeout: std.Io.Timeout = .{ .duration = .{ .clock = .awake, .raw = .fromMilliseconds(100) } };
-    var buffer: [10 * 1024]u8 = undefined;
+    var buffer: [20 * 1024]u8 = undefined;
     var writer = child.stdin.?.writer(io, &buffer);
 
     var data = stream;
@@ -183,7 +183,7 @@ pub fn pipe_data(
     };
 }
 
-const block_size = 50000;
+const block_size = 10 * 1024;
 
 test "audio_to_ogg" {
     const gpa = std.testing.allocator;
