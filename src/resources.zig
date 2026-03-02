@@ -591,19 +591,26 @@ pub const Resources = struct {
         results: *ArrayListUnmanaged(*Resource),
         allocator: Allocator,
     ) !void {
+        var seen: std.AutoHashMapUnmanaged(u64, *Resource) = .empty;
+        defer seen.deinit(allocator);
         for (keywords) |keyword| {
             const r = try self.by_word.lookup(keyword);
-            if (r != null) {
-                for (r.?.exact_accented.items) |x| {
-                    if (category.matches(x.resource)) {
-                        try results.append(allocator, x);
-                    }
+            if (r == null) continue;
+            for (r.?.exact_accented.items) |x| {
+                if (category.matches(x.resource)) {
+                    var entry = try seen.getOrPut(allocator, x.uid);
+                    if (entry.found_existing) continue;
+                    entry.value_ptr.* = x;
+                    try results.append(allocator, x);
                 }
-                if (results.items.len == 0) {
-                    for (r.?.exact_unaccented.items) |x| {
-                        if (category.matches(x.resource)) {
-                            try results.append(allocator, x);
-                        }
+            }
+            if (results.items.len == 0) {
+                for (r.?.exact_unaccented.items) |x| {
+                    if (category.matches(x.resource)) {
+                        var entry = try seen.getOrPut(allocator, x.uid);
+                        if (entry.found_existing) continue;
+                        entry.value_ptr.* = x;
+                        try results.append(allocator, x);
                     }
                 }
             }
@@ -1258,6 +1265,37 @@ test "search resources" {
     try expectEqual(1, results.items.len);
 }
 
+test "file_with_full_stop" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var keywords: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer keywords.deinit(gpa);
+    try keywords.append(gpa, "ἄγγελος");
+
+    var results: std.ArrayListUnmanaged(*Resource) = .empty;
+    defer results.deinit(gpa);
+
+    var resources = try Resources.create(gpa);
+    defer resources.destroy();
+
+    _ = try resources.loadDirectory(io, "./test/repo/", null);
+
+    {
+        try resources.search(&.{"ἐστιν"}, .any, &results, gpa);
+        try expectEqual(1, results.items.len);
+        results.clearRetainingCapacity();
+        try resources.search(&.{"ἦν"}, .any, &results, gpa);
+        try expectEqual(1, results.items.len);
+        results.clearRetainingCapacity();
+        try resources.search(&.{ "ἐστιν", "ἦν" }, .any, &results, gpa);
+        try expectEqual(1, results.items.len);
+    }
+
+    try expect(resources.by_sentence.index.get("ἐστιν. ἦν") != null);
+    try expect(resources.by_word.index.get("ἦν") != null);
+    try expect(resources.by_word.index.get("ἐστιν") != null);
+}
+
 test "file_name_split" {
     const info = get_file_type("fish.jpg");
     try expectEqualStrings("fish", info.name);
@@ -1290,7 +1328,7 @@ test "bundle" {
         defer resources.destroy();
         _ = try resources.loadDirectory(io, "./test/repo/", null);
 
-        try expectEqual(339, resources.by_sentence.index.count());
+        try expectEqual(382, resources.by_sentence.index.count());
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);

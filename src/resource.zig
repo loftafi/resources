@@ -78,7 +78,7 @@ pub const Resource = struct {
         self.resource = file_type;
 
         if (file_type == .wav) {
-            if (extract_wav_name(file_name)) |sentence| {
+            if (extract_wav_name(filename)) |sentence| {
                 const sentence_nfc = try normalise.nfc(gpa, sentence);
                 defer sentence_nfc.deinit(gpa);
                 try self.add_sentence(arena, sentence_nfc.slice);
