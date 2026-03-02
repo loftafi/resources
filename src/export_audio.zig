@@ -133,7 +133,7 @@ pub fn pipe_data(
 
     const x = if (data.len < block_size) data.len else block_size;
     try writer.interface.writeAll(data[0..x]);
-    data = data[block_size..];
+    data = data[x..];
     try writer.interface.flush();
 
     while (true) {
