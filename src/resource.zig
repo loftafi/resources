@@ -237,40 +237,35 @@ fn remove_extension(path: []const u8) []const u8 {
 
 /// Wav files don't have metadata files, so the metadata is extracted
 /// from the file name itself.
-fn extract_wav_name(file: []const u8) ?[]const u8 {
-    var start: usize = file.len;
-    var end: usize = file.len;
+fn extract_wav_name(text: []const u8) ?[]const u8 {
+    var last_dot: ?usize = null;
+    for (0..text.len) |i| {
+        if (text[i] == '.') last_dot = i;
+    }
+    var end = if (last_dot != null) last_dot.? else text.len;
+    while (end > 0 and is_digit(text[end - 1])) end = end - 1;
 
-    var c: u8 = 0;
-    while (start > 0) {
-        c = file[start - 1];
-        if ((c == '.') or (c >= '0' and c <= '9')) {
-            start -= 1;
-            end = start;
-            continue;
+    var first_tilde: ?usize = null;
+    for (0..end) |i| {
+        if (text[i] == '~') {
+            if (first_tilde != null) return null;
+            first_tilde = i + 1;
         }
-        if (c == '~' or c == '/' or c == '\\') break;
-        start -= 1;
+    }
+    if (first_tilde != null and first_tilde.? < text.len and is_digit(text[first_tilde.?])) return null;
+    var start = if (first_tilde != null) first_tilde.? else 0;
+
+    for (start..end) |i| {
+        if (text[i] == '/' or text[i] == '\\')
+            start = i + 1;
     }
 
-    if (start == file.len) return null;
     if (start == end) return null;
+    return text[start..end];
+}
 
-    const name = file[start..end];
-
-    if (c == '~') {
-        start -= 1;
-        end = start;
-        while (start > 0) {
-            c = file[start - 1];
-            if (c == '~' or c == '/' or c == '\\') break;
-            start -= 1;
-        }
-        if (start == end) return null;
-        std.debug.assert(start <= end);
-    }
-
-    return name;
+inline fn is_digit(c: u8) bool {
+    return c >= '0' and c <= '9';
 }
 
 test "remove_extension" {
@@ -282,6 +277,8 @@ test "remove_extension" {
     try expectEqualStrings("fish2", remove_extension("fish2.aaaaa"));
     try expectEqualStrings("fish22", remove_extension("fish22.aaaaa"));
     try expectEqualStrings("fish", remove_extension("fish"));
+    try expectEqualStrings("fish.head", remove_extension("fish.head.txt"));
+    try expectEqualStrings("o", remove_extension("o"));
     try expectEqualStrings("/happy/fish", remove_extension("/happy/fish"));
     try expectEqualStrings("/ha.ppy/fish", remove_extension("/ha.ppy/fish"));
     try expectEqualStrings("/happy/fish", remove_extension("/happy/fish.js"));
@@ -358,6 +355,17 @@ test "wav_filename" {
         const name = extract_wav_name("other~ἀρτος.wav");
         try expectEqualStrings("ἀρτος", name.?);
     }
+    {
+        const name = extract_wav_name("jay~εἷς κύων. δύο ἄνδρες.wav");
+        try expectEqualStrings("εἷς κύων. δύο ἄνδρες", name.?);
+    }
+    try expectEqualStrings("dr.wa", extract_wav_name("j~dr.wa.txt").?);
+    try expectEqualStrings("dr.wa", extract_wav_name("j~dr.wa2.txt").?);
+    try expectEqualStrings("dr.wa", extract_wav_name("/var/j~dr.wa2.txt").?);
+    try expectEqual(null, extract_wav_name(""));
+    try expectEqual(null, extract_wav_name("2"));
+    try expectEqual(null, extract_wav_name("jay~fish~2.txt"));
+    try expectEqual(null, extract_wav_name("jay~f ish~2.txt"));
 }
 
 test "read_metadata" {
