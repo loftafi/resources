@@ -267,6 +267,11 @@ pub const Resources = struct {
                 continue;
             }
 
+            if (resource.visible == false) {
+                debug("Skipping non visible resource: uid={s}", .{uid});
+                continue;
+            }
+
             if (resource.filename == null) {
                 err("Resource object missing filename: {s}. Resource probably lives in a bundle.", .{uid});
                 continue;
@@ -1265,12 +1270,32 @@ test "search resources" {
     try expectEqual(1, results.items.len);
 }
 
+test "ignore_not_visible" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
+    var results: std.ArrayListUnmanaged(*Resource) = .empty;
+    defer results.deinit(gpa);
+
+    var resources = try Resources.create(gpa);
+    defer resources.destroy();
+
+    _ = try resources.loadDirectory(io, "./test/repo/", null);
+
+    {
+        // The bean file must be ignored
+        try resources.search(&.{"ὄσπρια"}, .any, &results, gpa);
+        try expectEqual(0, results.items.len);
+        // The bean file must not be in the set of δύο
+        results.clearRetainingCapacity();
+        try resources.search(&.{"δύο"}, .any, &results, gpa);
+        try expectEqual(1, results.items.len);
+    }
+}
+
 test "file_with_full_stop" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
-    var keywords: std.ArrayListUnmanaged([]const u8) = .empty;
-    defer keywords.deinit(gpa);
-    try keywords.append(gpa, "ἄγγελος");
 
     var results: std.ArrayListUnmanaged(*Resource) = .empty;
     defer results.deinit(gpa);
