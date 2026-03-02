@@ -84,7 +84,7 @@ fn wav_to_ogg(
         "-", //outfile,
     };
 
-    info("ffmpeg starting (sending {d} bytes)", .{wav_data.len});
+    debug("ffmpeg starting (sending {Bi:0.2} bytes)", .{wav_data.len});
 
     var ffmpeg = std.process.spawn(io, .{
         .argv = &argv,

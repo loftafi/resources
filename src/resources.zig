@@ -280,7 +280,7 @@ pub const Resources = struct {
                         err("generate_ogg_audio_failed. {any} Skipping {s}. {s}", .{ f, uid, resource.filename.? });
                         continue;
                     };
-                    std.log.info("generated ogg for {s} wav. {s} size={d}", .{ name, uid, processed.len });
+                    std.log.info("generated ogg for {s} size={Bi:.2}", .{ name, processed.len });
                     defer self.parent_allocator.free(processed);
                     try write_folder_file_bytes(io, cache_dir, name, processed);
                     add_size = processed.len;
