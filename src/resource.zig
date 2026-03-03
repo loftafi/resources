@@ -83,8 +83,6 @@ pub const Resource = struct {
                 defer sentence_nfc.deinit(gpa);
                 try self.add_sentence(arena, sentence_nfc.slice);
             }
-        } else {
-            //try self.add_sentence(arena, file_name);
         }
 
         // Check if there is a metadata file to load.
@@ -96,8 +94,6 @@ pub const Resource = struct {
                 self.visible = true;
                 if (self.uid == 0 and file_type == .wav) {
                     self.uid = try hash_uid(io, file_name, filename);
-                    //var buffer: [40:0]u8 = undefined;
-                    //try self.add_sentence(arena, encode_uid(u64, self.uid, &buffer));
                 }
                 return;
             } else {
@@ -184,7 +180,11 @@ pub const Resource = struct {
     /// Attach a sentence to this resource, ensuring that no duplicate
     /// sentences are added. If non significant punctuation is found at the
     /// end of this sentence, also attach a non punctuated version.
-    fn add_sentence(self: *Resource, allocator: Allocator, text: []const u8) (error{MetadataMissing} || Allocator.Error)!void {
+    fn add_sentence(
+        self: *Resource,
+        allocator: Allocator,
+        text: []const u8,
+    ) (error{MetadataMissing} || Allocator.Error)!void {
         if (text.len == 0) return error.MetadataMissing;
 
         var found = false;

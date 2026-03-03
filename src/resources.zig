@@ -1293,6 +1293,38 @@ test "ignore_not_visible" {
     }
 }
 
+test "font_lookup" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
+    var results: std.ArrayListUnmanaged(*Resource) = .empty;
+    defer results.deinit(gpa);
+
+    var resources = try Resources.create(gpa);
+    defer resources.destroy();
+
+    _ = try resources.loadDirectory(io, "./test/repo/", null);
+
+    {
+        // Basic search
+        try resources.search(&.{"fakefont"}, .any, &results, gpa);
+        try expectEqual(1, results.items.len);
+        // Basic lookup
+        results.clearRetainingCapacity();
+        try resources.lookup("fakefont", .any, .exact, &results, gpa);
+        try expectEqual(1, results.items.len);
+        // Filtered lookup
+        var font = try resources.lookupOne("fakefont", .any, gpa);
+        try expect(font != null);
+        // Filtered lookup
+        font = try resources.lookupOne("fakefont", .font, gpa);
+        try expect(font != null);
+        // Filtered lookup
+        font = try resources.lookupOne("fakefont", .ttf, gpa);
+        try expect(font != null);
+    }
+}
+
 test "file_with_full_stop" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
@@ -1353,7 +1385,7 @@ test "bundle" {
         defer resources.destroy();
         _ = try resources.loadDirectory(io, "./test/repo/", null);
 
-        try expectEqual(382, resources.by_sentence.index.count());
+        try expectEqual(397, resources.by_sentence.index.count());
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
