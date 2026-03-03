@@ -233,7 +233,7 @@ pub const Resources = struct {
         io: std.Io,
         filename: []const u8,
         resources: std.AutoHashMapUnmanaged(u64, *const Resource),
-        options: Options,
+        options: *const Options,
         cache: []const u8,
     ) (Allocator.Error || Resources.Error || std.Io.File.OpenError ||
         std.Io.Writer.Error || std.Io.Writer.Error || std.Io.Reader.Error ||
@@ -1432,7 +1432,7 @@ test "bundle" {
             io,
             TEST_BUNDLE_FILENAME,
             resources.used_resources.?,
-            .{},
+            &.{},
             "/tmp/",
         );
     }

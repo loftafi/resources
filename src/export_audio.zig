@@ -9,7 +9,7 @@ pub fn generate_ogg_audio(
     io: std.Io,
     resource: *const Resource,
     resources: *Resources,
-    options: Options,
+    options: *const Options,
 ) (wav.Error || Allocator.Error || Resources.Error || error{FfmpegFailure} ||
     std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError ||
     std.Io.Writer.Error || std.Io.Reader.LimitedAllocError ||

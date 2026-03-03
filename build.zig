@@ -74,6 +74,21 @@ pub fn build(b: *std.Build) void {
 
     const docs_step = b.step("docs", "Generate docs into zig-out/docs");
     docs_step.dependOn(&install_docs.step);
+
+    // Build the helper `resources` command.
+    const exe_mod = b.createModule(.{
+        .root_source_file = b.path("cmd/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe_mod.addImport("resources", lib_mod);
+
+    const exe = b.addExecutable(.{
+        .name = "resources",
+        .root_module = exe_mod,
+    });
+
+    b.installArtifact(exe);
 }
 
 pub fn add_imports(
