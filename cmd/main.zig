@@ -72,12 +72,17 @@ pub fn main(init: std.process.Init) !void {
         print("\n", .{});
         print("Search by a specific file extension or caetgory:\n", .{});
         print("\n", .{});
-        print("  resources -t jpg mybundle.bd search αρτος\n", .{});
-        print("  resources -t ogg mybundle.bd search αρτος\n", .{});
-        print("  resources -t image mybundle.bd search αρτος\n", .{});
-        print("  resources -t audio mybundle.bd search αρτος\n", .{});
+        print("  resources -t jpg search αρτος\n", .{});
+        print("  resources -t ogg search αρτος\n", .{});
+        print("  resources -t image search αρτος\n", .{});
+        print("  resources -t audio search αρτος\n", .{});
         print("\n", .{});
-        print("The -b flag is requred unless you create a $HOME/.resources.conf", .{});
+        print("The -b flag is requred unless you create a $HOME/.resources.conf:\n\n", .{});
+
+        print("    {{\n", .{});
+        print("        \"repo\":\"/path/to/repo/\",\n", .{});
+        print("        \"repo_cache\":\"/path/to/repo.cache/\"\n", .{});
+        print("    }}\n", .{});
 
         return;
     }
