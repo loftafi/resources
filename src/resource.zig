@@ -395,6 +395,32 @@ pub fn load_file_byte_slice(
     return reader.interface.readAlloc(allocator, size);
 }
 
+test "read resource info" {
+    const text = "i:f43ih\nd:202309072345\nc:copy\ns:ὁ ἄρτος.\nv:true\n\n";
+    var data = Parser.init(text);
+    const element = try settings.next(&data);
+    try expect(element != null);
+    try expectEqual(.uid, element.?.setting);
+    try expectEqualStrings("f43ih", element.?.value);
+    const element2 = try settings.next(&data);
+    try expect(element2 != null);
+    try expectEqual(.date, element2.?.setting);
+    try expectEqualStrings("202309072345", element2.?.value);
+}
+
+test "read resource info space" {
+    const text = " i:f43ih  \n\r\nd:   202309072345   \nc:copy\ns:ὁ ἄρτος.\nv:true\n\n";
+    var data = Parser.init(text);
+    const element = try settings.next(&data);
+    try expect(element != null);
+    try expectEqual(.uid, element.?.setting);
+    try expectEqualStrings("f43ih", element.?.value);
+    const element2 = try settings.next(&data);
+    try expect(element2 != null);
+    try expectEqual(.date, element2.?.setting);
+    try expectEqualStrings("202309072345", element2.?.value);
+}
+
 test "test_load_file_bytes" {
     const data = try load_file_bytes(std.testing.allocator, std.testing.io, "./test/test.txt");
     defer std.testing.allocator.free(data);
@@ -583,6 +609,7 @@ pub const decode_uid = @import("base62.zig").decode;
 pub const random = @import("random.zig");
 
 const settings = @import("settings.zig");
+const Setting = settings.Setting;
 const FileType = @import("root.zig").FileType;
 const Resources = @import("resources.zig").Resources;
 const Parser = @import("praxis").Parser;

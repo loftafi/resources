@@ -886,7 +886,7 @@ fn read_extension(path: []const u8) []const u8 {
     return "";
 }
 
-/// Placeholder sort function for Resource record.
+/// Compare two `Resource` items by `uid`.
 pub fn lessThan(_: ?[]const u8, self: *Resource, other: *Resource) bool {
     return self.uid < other.uid;
 }
@@ -903,7 +903,7 @@ inline fn append_if_not_found(
 }
 
 /// Describes a table of contents entry in a bundle file.
-pub const BundleResource = struct {
+const BundleResource = struct {
     uid: u64,
     size: u32,
     type: FileType,
@@ -945,32 +945,6 @@ test "resource init" {
     defer resources.destroy();
     try expectEqual(0, resources.by_uid.count());
     try expectEqual(0, resources.bundle_file.len);
-}
-
-test "read resource info" {
-    const text = "i:f43ih\nd:202309072345\nc:copy\ns:ὁ ἄρτος.\nv:true\n\n";
-    var data = Parser.init(text);
-    const element = try settings.next(&data);
-    try expect(element != null);
-    try expectEqual(.uid, element.?.setting);
-    try expectEqualStrings("f43ih", element.?.value);
-    const element2 = try settings.next(&data);
-    try expect(element2 != null);
-    try expectEqual(.date, element2.?.setting);
-    try expectEqualStrings("202309072345", element2.?.value);
-}
-
-test "read resource info space" {
-    const text = " i:f43ih  \n\r\nd:   202309072345   \nc:copy\ns:ὁ ἄρτος.\nv:true\n\n";
-    var data = Parser.init(text);
-    const element = try settings.next(&data);
-    try expect(element != null);
-    try expectEqual(.uid, element.?.setting);
-    try expectEqualStrings("f43ih", element.?.value);
-    const element2 = try settings.next(&data);
-    try expect(element2 != null);
-    try expectEqual(.date, element2.?.setting);
-    try expectEqualStrings("202309072345", element2.?.value);
 }
 
 test "load_resource image" {
@@ -1389,13 +1363,10 @@ const eql = @import("std").mem.eql;
 const Allocator = std.mem.Allocator;
 const Normalize = @import("Normalize");
 
-const settings = @import("settings.zig");
-pub const Setting = settings.Setting;
 pub const UniqueWords = @import("unique_words.zig").UniqueWords;
-pub const WordFinder = @import("word_finder.zig").WordFinder;
 pub const random = @import("random.zig");
 pub const Resource = @import("resource.zig").Resource;
-pub const exportImage = @import("export_image.zig").exportImage;
+const exportImage = @import("export_image.zig").exportImage;
 const load_file_bytes = @import("resource.zig").load_file_bytes;
 const load_file_byte_slice = @import("resource.zig").load_file_byte_slice;
 const load_folder_file_bytes = @import("resource.zig").load_folder_file_bytes;
