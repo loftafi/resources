@@ -478,4 +478,4 @@ const FileType = @import("root.zig").FileType;
 const zstbi = @import("zstbi");
 const Image = zstbi.Image;
 
-const write_folder_file_bytes = @import("resources.zig").write_folder_file_bytes;
+const write_folder_file_bytes = @import("resource.zig").write_folder_file_bytes;

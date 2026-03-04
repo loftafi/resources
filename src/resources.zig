@@ -42,6 +42,8 @@ pub const Resources = struct {
     /// Keeps a record of resources that been loaded with `loadResource`.
     used_resources: ?std.AutoHashMapUnmanaged(u64, *const Resource),
 
+    /// Create an empty file bundle including an internal arena allocator.
+    /// Follow up `create()` with either `loadDirectory()` or `loadBundle()`.
     pub fn create(parent_allocator: Allocator) error{OutOfMemory}!*Resources {
         var arena = try parent_allocator.create(std.heap.ArenaAllocator);
         errdefer parent_allocator.destroy(arena);
@@ -99,7 +101,7 @@ pub const Resources = struct {
         self.parent_allocator.destroy(self);
     }
 
-    // Load the table of contents of a resource bundle into memory.
+    /// Load the table of contents of a resource bundle into memory.
     pub fn loadBundle(
         self: *Resources,
         io: std.Io,
@@ -453,16 +455,17 @@ pub const Resources = struct {
         try writer.interface.flush();
     }
 
-    pub fn header_contains(items: []BundleResource, uid: u64) bool {
+    /// Return true if a uid exists in a resource bundle list.
+    fn header_contains(items: []BundleResource, uid: u64) bool {
         for (items) |item| {
             if (item.uid == uid) return true;
         }
         return false;
     }
 
-    // Load the full list of usable files inside the `folder` along with
-    // any associated metadata files so that each file can be searched for
-    // and loaded.
+    /// Load the full list of usable files inside the `folder` along with
+    /// any associated metadata files so that each file can be searched for
+    /// and loaded.
     pub fn loadDirectory(
         self: *Resources,
         io: std.Io,
@@ -745,9 +748,9 @@ pub const Resources = struct {
         return results.items[choose];
     }
 
-    // Read the binary data of the requested resource. Depending on
-    // where the file was found it might be loaded from a directory or
-    // from a resource bundle.
+    /// Return the binary data of a resource. Depending on where the file
+    /// metadata was found the data is read from a directory or from a
+    /// resource bundle.
     pub fn loadResource(
         self: *Resources,
         allocator: Allocator,
@@ -910,133 +913,6 @@ pub const BundleResource = struct {
     file_index: usize, // Position of file inside bundle not including header size.
 };
 
-/// Return a slice of a sentence with trailing punctuation removed. This
-/// allows searches to find a non punctuated version of the sentence.
-pub fn sentence_trim(sentence: []const u8) ?[]const u8 {
-    var trimmed: []const u8 = sentence;
-    while (true) {
-        if (std.mem.endsWith(u8, trimmed, ".")) {
-            trimmed.len -= ".".len;
-            continue;
-        }
-        if (std.mem.endsWith(u8, trimmed, "·")) {
-            trimmed.len -= "·".len;
-            continue;
-        }
-        if (std.mem.endsWith(u8, trimmed, ",")) {
-            trimmed.len -= ",".len;
-            continue;
-        }
-        if (std.mem.endsWith(u8, trimmed, "!")) {
-            trimmed.len -= "!".len;
-            continue;
-        }
-        if (std.mem.endsWith(u8, trimmed, ":")) {
-            trimmed.len -= ":".len;
-            continue;
-        }
-        if (std.mem.endsWith(u8, trimmed, ";")) {
-            trimmed.len -= ";".len;
-            continue;
-        }
-        break;
-    }
-    if (trimmed.len == sentence.len)
-        return null;
-    return trimmed;
-}
-
-pub fn write_file_bytes(
-    io: std.Io,
-    filename: []const u8,
-    data: []const u8,
-) (Allocator.Error || std.Io.Writer.Error || std.Io.File.OpenError || std.Io.Dir.RenameError || std.Io.File.Writer.Error)!void {
-    try write_folder_file_bytes(io, std.Io.Dir.cwd(), filename, data);
-}
-
-pub fn write_folder_file_bytes(
-    io: std.Io,
-    folder: std.Io.Dir,
-    filename: []const u8,
-    data: []const u8,
-) (Allocator.Error || std.Io.Writer.Error || std.Io.File.OpenError || std.Io.Dir.RenameError || std.Io.File.Writer.Error)!void {
-    var buffer: [16]u8 = undefined;
-    const tmp_filename = random.random_string(&buffer);
-    const file = folder.createFile(io, tmp_filename, .{ .read = false, .truncate = true }) catch |e| {
-        err("Failed to open file for writing: {s}. {any}", .{ filename, e });
-        return e;
-    };
-    defer file.close(io);
-    try file.writeStreamingAll(io, data);
-    try std.Io.Dir.rename(folder, tmp_filename, folder, filename, io);
-}
-
-pub fn cache_has_file(
-    io: std.Io,
-    folder: std.Io.Dir,
-    filename: []const u8,
-) (std.Io.File.StatError || std.Io.Dir.StatFileError)!?usize {
-    const stat = folder.statFile(io, filename, .{ .follow_symlinks = false }) catch |f| {
-        if (f == error.FileNotFound) return null;
-        return f;
-    };
-    return stat.size;
-}
-
-// std.Io.Dir.cwd().readFileAlloc(io, filename, allocator, .unlimited)
-pub fn load_file_bytes(
-    allocator: Allocator,
-    io: std.Io,
-    filename: []const u8,
-) (Allocator.Error || std.Io.File.OpenError || std.Io.Reader.Error || std.Io.Reader.LimitedAllocError)![]u8 {
-    const file = std.Io.Dir.cwd().openFile(io, filename, .{ .mode = .read_only }) catch |e| {
-        if (!std.ascii.endsWithIgnoreCase(filename, ".txt"))
-            log.debug("load_file_bytes failed to read file: {s}  {any}", .{ filename, e });
-        return e;
-    };
-    defer file.close(io);
-    var tmp: [1024 * 5]u8 = undefined;
-    var reader = file.reader(io, &tmp);
-    return try reader.interface.allocRemaining(allocator, .unlimited);
-}
-
-// folder.readFileAlloc(io, filename, allocator, .unlimited)
-pub fn load_folder_file_bytes(
-    allocator: Allocator,
-    io: std.Io,
-    folder: std.Io.Dir,
-    filename: []const u8,
-) (Allocator.Error || std.Io.File.OpenError || std.Io.Reader.LimitedAllocError || std.Io.Reader.Error)![]u8 {
-    const file = folder.openFile(io, filename, .{ .mode = .read_only }) catch |e| {
-        return e;
-    };
-    defer file.close(io);
-    var tmp: [1024 * 5]u8 = undefined;
-    var reader = file.reader(io, &tmp);
-    return reader.interface.allocRemaining(allocator, .unlimited);
-}
-
-fn load_file_byte_slice(
-    allocator: Allocator,
-    io: std.Io,
-    filename: []const u8,
-    offset: usize,
-    size: usize,
-) (Allocator.Error || std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.StatError || std.Io.File.SeekError || Resources.Error)![]u8 {
-    const file = std.Io.Dir.cwd().openFile(io, filename, .{ .mode = .read_only }) catch |e| {
-        err("Repo file missing: {s}", .{filename});
-        return e;
-    };
-    defer file.close(io);
-    var tmp: [1024 * 5]u8 = undefined;
-    var reader = file.reader(io, &tmp);
-    reader.seekTo(offset) catch |e| {
-        err("Seek file failed: {s} {d} {d} Error: {any}", .{ filename, offset, size, e });
-        return e;
-    };
-    return reader.interface.readAlloc(allocator, size);
-}
-
 fn ignore_file(text: []const u8) bool {
     if (std.mem.eql(u8, ".gitignore", text)) return true;
     if (std.mem.eql(u8, ".DS_Store", text)) return true;
@@ -1054,27 +930,6 @@ test "nfc_normalisation" {
     defer data_nfc.deinit(allocator);
 
     try expectEqualStrings(data, data_nfc.slice);
-}
-
-test "test_load_file_bytes" {
-    const data = try load_file_bytes(std.testing.allocator, std.testing.io, "./test/test.txt");
-    defer std.testing.allocator.free(data);
-    try expectEqualStrings("simple\n", data);
-}
-
-test "test_write_file" {
-    const io = std.testing.io;
-    const gpa = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const data = "this is a test\n";
-    const filename = "test.dat";
-
-    try write_folder_file_bytes(io, tmp.dir, filename, data);
-    const read = try load_folder_file_bytes(gpa, io, tmp.dir, filename);
-    defer std.testing.allocator.free(read);
-    try expectEqualStrings(data, read);
 }
 
 test "read_extension" {
@@ -1541,6 +1396,12 @@ pub const WordFinder = @import("word_finder.zig").WordFinder;
 pub const random = @import("random.zig");
 pub const Resource = @import("resource.zig").Resource;
 pub const exportImage = @import("export_image.zig").exportImage;
+const load_file_bytes = @import("resource.zig").load_file_bytes;
+const load_file_byte_slice = @import("resource.zig").load_file_byte_slice;
+const load_folder_file_bytes = @import("resource.zig").load_folder_file_bytes;
+const write_folder_file_bytes = @import("resource.zig").write_folder_file_bytes;
+const cache_has_file = @import("resource.zig").cache_has_file;
+const sentence_trim = @import("resource.zig").sentence_trim;
 
 pub const FileType = @import("root.zig").FileType;
 

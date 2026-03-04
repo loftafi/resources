@@ -200,7 +200,7 @@ test "audio_to_ogg" {
     try expectEqual(1, resource.?.sentences.items.len);
     try expectEqualStrings("ἄρτος", resource.?.sentences.items[0]);
 
-    const data = try generate_ogg_audio(gpa, io, resource.?, resources, .{ .normalise_audio = true });
+    const data = try generate_ogg_audio(gpa, io, resource.?, resources, &.{ .normalise_audio = true });
     defer gpa.free(data);
 
     // Different versions of ffmpeg create a slightly different sized file.
@@ -228,6 +228,6 @@ const Resources = @import("resources.zig").Resources;
 const Resource = @import("resources.zig").Resource;
 const Options = @import("resources.zig").Options;
 const uid_writer = @import("base62.zig").uid_writer;
-const write_folder_file_bytes = @import("resources.zig").write_folder_file_bytes;
+const write_folder_file_bytes = @import("resource.zig").write_folder_file_bytes;
 
 const wav = @import("wav.zig");
