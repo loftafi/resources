@@ -1,9 +1,68 @@
 # Resources
 
-This zig module supports loading, searching, and bundling resources
-into a bundle for distribution. The Zig
-[API documentation](https://loftafi.github.io/resources/docs/) is available
-[here](https://loftafi.github.io/resources/docs/)
+This zig module supports collecting, searching, and bundling resources
+into a bundle for distribution. The most common use case for this is
+a game that wishes to pack all game reosurces into an individual bundle file.
+
+This project provides a command line tool for collecting resources, and a zig
+api for in game access to these resources.
+
+See the Zig [API documentation](https://loftafi.github.io/resources/docs/) for
+API details.
+
+## Introduction
+
+Build the helper command line tool `resources` using `zig build`, and create
+a repository folder. Use the `resources` command to add resources to the repo.
+
+    $ resources add mysprite.png "player1" "Author Name"
+    added 'mysprite.png' to repo as 'ym92DE.png' and 'ym92DE.txt'.
+
+     $ ls $PROJECT/repo
+    -rw-r--r--@   1 user  staff   6.8M May 26  2024 ym92DE.png
+    -rw-r--r--@   1 user  staff    68B May 26  2024 ym92DE.txt
+    -rw-r--r--@   1 user  staff   4.3M May 26  2024 UpG9eB.wav
+    -rw-r--r--@   1 user  staff    70B May 26  2024 UpG9eB.txt
+    -rw-r--r--    1 user  staff   2.8M Jul 30  2024 0ATUYC.jpg
+    -rw-r--r--@   1 user  staff    60B Jul 30  2024 0ATUYC.txt
+    -rwxr-xr-x@   1 user  staff    19M Jul 30  2024 GHQLDn.ttf
+    -rwxr-xr-x@   1 user  staff    94B Jul 30  2024 GHQLDn.txt
+
+The metadata `txt` file is designed to be human editable. You can `git add`
+and `git commit` your repo folder.
+
+    more $PROJECT/repo/ym92DE.txt
+    i:ym92DE
+    d:202603041202
+    v:true
+    c:opensil
+    s:mysprite.png
+    s:player1
+    s:player 1
+
+Search resources using the `resource serch` command, i.e.
+
+    $ resources search player
+    ym92DE png  player1
+                player 1
+                mysprite.png
+    Pkm2Fm png  player2
+                player 2
+                baddie.png
+    found 2 resources.
+
+
+Why is the filename changed to a uid? There are two main reasons.
+
+Firstly, it makes it possible to insert the same image file twice.
+An older version of a game might use the older version of `player1`
+and a newer version of a game might use the newer version of `player1`. Non
+techincal people can open and see both versions of the image in the folder.
+Secondly, non-English speaking developers and designers might use filenames
+in their own language, but these filenames can not be safely represented and
+or managed across platforms. The original filename is stored in utf-8 in the
+metadata text file.
+
 
 ## Example usage
 
