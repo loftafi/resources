@@ -68,19 +68,54 @@ metadata text file.
 
 ## 📝 Example Zig Usage
 
+During development, use `loadDirectory` to source files from the
+resository folder.
+
 ```zig
 // Load a repository folder of files (with metadata files)
-var bucket = try Resources.create(allocator);
+var bucket = try Resources.create(gpa);
 defer bucket.destroy();
-seed(); // If a uid is generated, make sure it is unique.
+
 _ = bucket.loadDirectory(folder) catch |e| {
     std.debug.print("error {any} while loading {s}\n", .{ e, folder });
     return Error.FailedReadingRepo;
 };
+// Tell the bucket to track which resources your game loaded by initialising
+// the `used_resources` array list in the bucket.
+bucket.used_resources = .empty;
+```
 
+In the final release, bundle your resorces and load them from the bundle.
+
+```zig
 // Load a resource bundle of files.
-bucket.loadBundle("/path/to/bundle");
+var bucket = try Resources.create(gpa);
+defer bucket.destroy();
+_ = bucket.loadBundle("/path/to/bundle.bd") catch |e|;
+    std.debug.print("error {any} while loading {s}\n", .{ e, folder });
+    return Error.FailedReadingRepo;
+};
+```
 
+To load the contents of file, first get the `Resource` record,
+then load the data for that resource. It is important to note
+that `lookupOne` can remember that this resource was loaded by
+adding it to the `resources.used_resources`
+
+```zig
+if (try bucket.lookupOne("payer1", .jpg, gpa)) |image| {
+    const data = bucket.loadResource(image, gpa) catch |e| switch(e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.FileNotFound => return error.ResourceNotFound,
+        else => error.ResourceReadError.
+    };
+}
+```
+
+Optionally, you can search for resources using a keyword `search` or file
+name `lookup`, i.e:
+
+```zig
 // Search for a resource by filename or word in a filename
 var results: std.ArrayListUnmanaged(*Resource) = .empty.
 defer results.deinit(allocator);
@@ -88,16 +123,15 @@ try bucket.search(keywords.items, .any, &results);
 for (results.items) |resource| {
     std.debug.print(" {d}  {s}\n", .{resource.uid, sentence});
 }
+```
 
-// Load a file from the resource bucket
-const data = resources.loadResource(resource, allocator) catch |e| {
-    if (e == error.OutOfMemory) return error.OutOfMemory;
-    if (e == error.FileNotFound) return error.ResourceNotFound;
-    return error.ResourceReadError;
-};
+During development, after all of the `lookupOne` calls, you may optionally
+call `saveBundle` to write a bundle file containing all of the resources that
+were loaded while the game was running.
 
+```zig
 // Save the contents of a list of resources into a bundle
-buket.saveBundle("/path/to/bundle", results);
+buket.saveBundle("/path/to/bundle.bd", resources.used_resources);
 
 ```
 
