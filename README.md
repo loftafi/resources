@@ -3,6 +3,8 @@
 This zig module supports collecting, searching, and bundling resources
 into a bundle for distribution. The most common use case for this is
 a game that wishes to pack all game reosurces into an individual bundle file.
+Attach metadata such as copyright information and an optional link to the source
+of the original file to make copyright and licence management easier.
 
 This project provides a command line tool for collecting resources, and a zig
 api for in game access to these resources.
@@ -35,7 +37,7 @@ and `git commit` your repo folder.
     i:ym92DE
     d:202603041202
     v:true
-    c:opensil
+    c:Author Name
     s:mysprite.png
     s:player1
     s:player 1
