@@ -1,4 +1,4 @@
-# Resources
+# 📦 Resources
 
 This zig module supports collecting, searching, and bundling resources
 into a bundle for distribution. The most common use case for this is
@@ -10,7 +10,7 @@ api for in game access to these resources.
 See the Zig [API documentation](https://loftafi.github.io/resources/docs/) for
 API details.
 
-## Introduction
+## ⚡️ Introduction
 
 Build the helper command line tool `resources` using `zig build`, and create
 a repository folder. Use the `resources` command to add resources to the repo.
@@ -64,7 +64,7 @@ or managed across platforms. The original filename is stored in utf-8 in the
 metadata text file.
 
 
-## Example usage
+## 📝 Example Zig Usage
 
 ```zig
 // Load a repository folder of files (with metadata files)
@@ -99,7 +99,7 @@ buket.saveBundle("/path/to/bundle", results);
 
 ```
 
-## Command line tool
+## 💻 Command Line Tool
 
 `zig build` creates a binary `zig-out/bin/resources` with commands that you
 can use to add and search a resource bundle file or resource folder.
@@ -132,14 +132,7 @@ The -b flag is requred unless you create a $HOME/.resources.conf:
         "repo_cache":"/path/to/repo.cache/"
     }
 
-## Unicode filenames
-
-On mac, some files may accidentally become NFD. You can convert all filenames
-to NFD usinc convmv:
-
-    convmv -r -f utf8 -t utf8 --nfc --notest .
-
-## License
+## 🔒 License
 
 This code is released under the terms of the MIT license. This
 code is useful for my purposes. No warrantee is given or implied
@@ -151,7 +144,7 @@ different licences. See [praxis](https://github.com/loftafi/praxis),
 [zg](https://codeberg.org/atman/zg) and
 [zstbi](https://github.com/zig-gamedev/zstbi) for details.
 
-## Contributing
+## 📨 Contributing
 
 Contributions under the MIT license are welcome. Consider raising an issue
 first to discuss the proposed change.
