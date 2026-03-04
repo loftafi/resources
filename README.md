@@ -92,7 +92,7 @@ In the final release, bundle your resorces and load them from the bundle.
 var bucket = try Resources.create(gpa);
 defer bucket.destroy();
 _ = bucket.loadBundle("/path/to/bundle.bd") catch |e|;
-    std.debug.print("error {any} while loading {s}\n", .{ e, folder });
+    std.debug.print("error {any} while loading bundle\n", .{ e });
     return Error.FailedReadingRepo;
 };
 ```
@@ -104,10 +104,10 @@ adding it to the `resources.used_resources`
 
 ```zig
 if (try bucket.lookupOne("payer1", .jpg, gpa)) |image| {
-    const data = bucket.loadResource(image, gpa) catch |e| switch(e) {
+    const data = bucket.loadResource(io, image, gpa) catch |e| switch(e) {
         error.OutOfMemory => return error.OutOfMemory,
         error.FileNotFound => return error.ResourceNotFound,
-        else => error.ResourceReadError.
+        else => error.ResourceReadError,
     };
 }
 ```
@@ -117,7 +117,7 @@ name `lookup`, i.e:
 
 ```zig
 // Search for a resource by filename or word in a filename
-var results: std.ArrayListUnmanaged(*Resource) = .empty.
+var results: std.ArrayListUnmanaged(*Resource) = .empty;
 defer results.deinit(allocator);
 try bucket.search(keywords.items, .any, &results);
 for (results.items) |resource| {
@@ -131,7 +131,18 @@ were loaded while the game was running.
 
 ```zig
 // Save the contents of a list of resources into a bundle
-buket.saveBundle("/path/to/bundle.bd", resources.used_resources);
+buket.saveBundle(
+    io,
+    "/path/to/bundle.bd",
+    resources.used_resources,
+    .{
+        .audio = .original, // choose `ogg` for wav to ogg conversion.
+        .image = .original, // choose `jpg` to convert png to jpg.
+        .normalise_audio = false,
+        .max_image_size = .{ .width = 10000, .height = 10000 },
+    },
+    "/tmp/",
+);
 
 ```
 
