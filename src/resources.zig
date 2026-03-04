@@ -850,7 +850,7 @@ pub const Resources = struct {
 /// Convert the extension of the file into an enum, and return both the
 /// extension and the name component of a filename. i.e `/etc/jay~info.wav`
 /// returns `.{ .name = "jay~info" .extension = .wav}`
-fn get_file_type(file: []const u8) struct { name: []const u8, extension: FileType } {
+pub fn get_file_type(file: []const u8) struct { name: []const u8, extension: FileType } {
     const ext = read_extension(file);
     if (ext.len == 0)
         return .{ .name = file, .extension = .unknown };

@@ -39,8 +39,8 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (a == null) {
-        print("Specify a command:\n", .{});
-        print("  resources add|search|bundle|help\n\n", .{});
+        print("usage: ", .{});
+        print("resources [-b folder] [-t any] add|search|bundle|help\n\n", .{});
         return;
     }
 
@@ -54,28 +54,29 @@ pub fn main(init: std.process.Init) !void {
         std.ascii.eqlIgnoreCase(command.?, "-h"))
     {
         print("\n", .{});
-        print("Add a file to a repository folder:\n", .{});
+        print("Add a file to a repository:\n", .{});
         print("\n", .{});
-        print("  resources add myimage.png\n", .{});
+        print("    resources add myimage.png \"Author name\" \"character sheet\"\n", .{});
+        print("    resources add myimage.jpg\n", .{});
         print("\n", .{});
         print("Search ignoring accents (unaccented) or exactly matching accents:\n", .{});
         print("\n", .{});
-        print("  resources search αρτος\n", .{});
-        print("  resources search unaccented αρτος\n", .{});
-        print("  resources search exact ἄρτος\n", .{});
-        print("  resources search partial αρτος\n", .{});
+        print("    resources search αρτος\n", .{});
+        print("    resources search unaccented αρτος\n", .{});
+        print("    resources search exact ἄρτος\n", .{});
+        print("    resources search partial αρτος\n", .{});
         print("\n", .{});
         print("Search inside a specific folder or bundle:\n", .{});
         print("\n", .{});
-        print("  resources -b mybundle.bd search αρτος\n", .{});
-        print("  resources -b myfolder/ search αρτος\n", .{});
+        print("    resources -b mybundle.bd search αρτος\n", .{});
+        print("    resources -b myfolder/ search αρτος\n", .{});
         print("\n", .{});
         print("Search by a specific file extension or caetgory:\n", .{});
         print("\n", .{});
-        print("  resources -t jpg search αρτος\n", .{});
-        print("  resources -t ogg search αρτος\n", .{});
-        print("  resources -t image search αρτος\n", .{});
-        print("  resources -t audio search αρτος\n", .{});
+        print("    resources -t jpg search αρτος\n", .{});
+        print("    resources -t ogg search αρτος\n", .{});
+        print("    resources -t image search αρτος\n", .{});
+        print("    resources -t audio search αρτος\n", .{});
         print("\n", .{});
         print("The -b flag is requred unless you create a $HOME/.resources.conf:\n\n", .{});
 
@@ -156,7 +157,8 @@ pub fn main(init: std.process.Init) !void {
 
     // "bundle" the resources required by the quiz file
     if (std.ascii.eqlIgnoreCase(command.?, "add")) {
-        try generate_uid_metadata(allocator, io, &config, &args);
+        try generate_uid_metadata(allocator, io, &config, &args, init.environ_map);
+        return;
     }
 
     // "bundle" the resources required by the quiz file
@@ -190,7 +192,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     print("Unknown command: {s}\n\n", .{command.?});
-    print("  resources add|search|bundle|help\n\n", .{});
+    print("usage: resources [-b directory] [-t any] add|search|bundle|help\n\n", .{});
 }
 
 pub fn resdump(resources: *Resources) void {
@@ -296,9 +298,30 @@ pub fn generate_uid_metadata(
     io: std.Io,
     config: *const Config,
     args: *std.process.Args.Iterator,
+    env: *std.process.Environ.Map,
 ) !void {
     var buffer: std.Io.Writer.Allocating = .init(allocator);
     defer buffer.deinit();
+
+    var source_filename: []const u8 = "";
+    if (args.next()) |arg| {
+        source_filename = arg;
+    } else {
+        print("A source filename must be specified.\n\n", .{});
+        print("    resources add myimage.jpg creator description\n", .{});
+        print("    resources add myimage.jpg\n", .{});
+        return;
+    }
+
+    var copyright: []const u8 = "";
+    if (args.next()) |arg| {
+        copyright = arg;
+    }
+
+    var sentence: []const u8 = "";
+    if (args.next()) |arg| {
+        sentence = arg;
+    }
 
     random.seed(io);
     var out = &buffer.writer;
@@ -322,39 +345,40 @@ pub fn generate_uid_metadata(
         };
     }
 
-    _ = args.next();
-    _ = args.next();
+    var file_info = get_file_type(source_filename);
 
-    var copyright: []const u8 = "";
-    if (args.next()) |arg| {
-        copyright = arg;
-    }
-
-    var sentence: []const u8 = "";
-    if (args.next()) |arg| {
-        sentence = arg;
-    }
+    const target_filename = try std.fmt.allocPrint(allocator, "{s}.{t}", .{ uid, file_info.extension });
+    defer allocator.free(target_filename);
 
     try out.print("i:{s}\n", .{uid});
     try out.print("d:", .{});
-    try timestamp(allocator, out);
+    try timestamp(allocator, io, env, out);
     try out.print("\n", .{});
     try out.print("v:true\n", .{});
     try out.print("c:{s}\n", .{copyright});
     try out.print("s:{s}\n", .{sentence});
 
-    var file = try dir.createFile(filename, .{});
-    defer file.close();
-    _ = try file.write(buffer.written());
+    var file = try dir.createFile(io, filename, .{});
+    defer file.close(io);
+    _ = try file.writeStreamingAll(io, buffer.written());
 
-    print("new repo file: {s}\n\n{s}", .{ filename, buffer.written() });
+    std.Io.Dir.cwd().copyFile(source_filename, dir, target_filename, io, .{}) catch |e| {
+        print("Failed to copy '{s}' to '{s}'. Error: {any}", .{ source_filename, target_filename, e });
+        return;
+    };
+
+    print("added '{s}' to repo as '{s}' and '{s}'", .{ source_filename, filename, target_filename });
 }
 
-fn timestamp(allocator: Allocator, writer: *std.Io.Writer) !void {
-    var env = try std.process.getEnvMap(allocator);
-    defer env.deinit();
-    const now = try zeit.instant(.{});
-    const local = try zeit.local(allocator, &env);
+fn timestamp(
+    allocator: Allocator,
+    io: std.Io,
+    env: *std.process.Environ.Map,
+    writer: *std.Io.Writer,
+) !void {
+    _ = env;
+    const now = try zeit.instant(io, .{});
+    const local = try zeit.local(allocator, io, .{});
     defer local.deinit();
     const now_local = now.in(&local);
     const dt = now_local.time();
@@ -373,6 +397,7 @@ const zeit = @import("zeit");
 
 const base62 = @import("resources").base62;
 const random = @import("resources").random;
+const get_file_type = @import("resources").get_file_type;
 const Resources = @import("resources").Resources;
 const Resource = @import("resources").Resource;
 const SearchCategory = @import("resources").Resources.SearchCategory;

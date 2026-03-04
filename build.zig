@@ -83,6 +83,10 @@ pub fn build(b: *std.Build) void {
     });
     exe_mod.addImport("resources", lib_mod);
 
+    const zeit = b.dependency("zeit", .{ .target = target, .optimize = optimize });
+    const zeit_module = zeit.module("zeit");
+    exe_mod.addImport("zeit", zeit_module);
+
     const exe = b.addExecutable(.{
         .name = "resources",
         .root_module = exe_mod,

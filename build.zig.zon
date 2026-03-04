@@ -1,6 +1,6 @@
 .{
     .name = .resources,
-    .version = "0.9.17",
+    .version = "0.9.18",
     .fingerprint = 0xef66ebae23b04127,
     .minimum_zig_version = "0.16.0",
 
@@ -8,6 +8,10 @@
         .praxis = .{
             .url = "git+https://github.com/loftafi/praxis.git#136a57c1fbea3c42761caeec50fa46cdce123228",
             .hash = "praxis-0.6.8-FPf2NfD3BgDUXwI1JUhJk0Cljgv9QL5wtowuf41Sr5Hg",
+        },
+        .zeit = .{
+            .url = "git+https://github.com/rockorager/zeit?ref=0.16#da59d0141ba556c77d503d5e1aebeaf5a6bf9e26",
+            .hash = "zeit-0.6.0-5I6bk2i6AgDYOczMsuuKcM7NYuOoTtxWEsZDsg8kSTiv",
         },
         .zg = .{
             .url = "git+https://codeberg.org/loftafi/zg-16.git#f2243a83dc0f46100ff60f92d87c83c6fc143fb1",
