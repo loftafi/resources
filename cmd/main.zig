@@ -155,6 +155,11 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // "bundle" the resources required by the quiz file
+    if (std.ascii.eqlIgnoreCase(command.?, "add")) {
+        try generate_uid_metadata(allocator, io, &config, &args);
+    }
+
+    // "bundle" the resources required by the quiz file
     if (std.ascii.eqlIgnoreCase(command.?, "bundle")) {
         var bundle_name: ?[]const u8 = null;
         if (args.next()) |arg| {
@@ -284,6 +289,78 @@ fn load_file_bytes(allocator: Allocator, io: std.Io, filename: []const u8) ![]u8
     return try std.Io.Dir.cwd().readFileAlloc(io, filename, allocator, .unlimited);
 }
 
+/// Genereate a uid metadata file to place in the file repo folder described
+/// in the config file.
+pub fn generate_uid_metadata(
+    allocator: Allocator,
+    io: std.Io,
+    config: *const Config,
+    args: *std.process.Args.Iterator,
+) !void {
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    defer buffer.deinit();
+
+    random.seed(io);
+    var out = &buffer.writer;
+
+    var buf: [40:0]u8 = undefined;
+    var buf2: [200]u8 = undefined;
+
+    var uid: []const u8 = "";
+    var filename: []const u8 = "";
+    var dir = try std.Io.Dir.openDirAbsolute(
+        io,
+        if (source_dir != null) source_dir.? else config.repo,
+        .{},
+    );
+    while (true) {
+        uid = base62.encode(u32, @intCast(random.random(std.math.maxInt(u32))), &buf);
+        filename = try std.fmt.bufPrint(&buf2, "{s}.txt", .{uid});
+        dir.access(io, filename, .{}) catch |e| switch (e) {
+            error.FileNotFound => break,
+            else => return e,
+        };
+    }
+
+    _ = args.next();
+    _ = args.next();
+
+    var copyright: []const u8 = "";
+    if (args.next()) |arg| {
+        copyright = arg;
+    }
+
+    var sentence: []const u8 = "";
+    if (args.next()) |arg| {
+        sentence = arg;
+    }
+
+    try out.print("i:{s}\n", .{uid});
+    try out.print("d:", .{});
+    try timestamp(allocator, out);
+    try out.print("\n", .{});
+    try out.print("v:true\n", .{});
+    try out.print("c:{s}\n", .{copyright});
+    try out.print("s:{s}\n", .{sentence});
+
+    var file = try dir.createFile(filename, .{});
+    defer file.close();
+    _ = try file.write(buffer.written());
+
+    print("new repo file: {s}\n\n{s}", .{ filename, buffer.written() });
+}
+
+fn timestamp(allocator: Allocator, writer: *std.Io.Writer) !void {
+    var env = try std.process.getEnvMap(allocator);
+    defer env.deinit();
+    const now = try zeit.instant(.{});
+    const local = try zeit.local(allocator, &env);
+    defer local.deinit();
+    const now_local = now.in(&local);
+    const dt = now_local.time();
+    try dt.gofmt(writer, "200601021504");
+}
+
 const std = @import("std");
 const err = std.log.err;
 const info = std.log.info;
@@ -292,7 +369,10 @@ const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
+const zeit = @import("zeit");
+
 const base62 = @import("resources").base62;
+const random = @import("resources").random;
 const Resources = @import("resources").Resources;
 const Resource = @import("resources").Resource;
 const SearchCategory = @import("resources").Resources.SearchCategory;

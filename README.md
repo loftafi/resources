@@ -40,6 +40,39 @@ buket.saveBundle("/path/to/bundle", results);
 
 ```
 
+## Command line tool
+
+`zig build` creates a binary `zig-out/bin/resources` with commands that you
+can use to add and search a resource bundle file or resource folder.
+
+Add a file to a repository folder:
+
+    resources add myimage.png
+
+Search ignoring accents (unaccented) or exactly matching accents:
+
+    resources search "my tile set"
+    resources search unaccented "my tile set"
+
+Search inside a specific folder or bundle:
+
+    resources -b mybundle.bd search "level complete sound"
+    resources -b myfolder/ search "level complete sound"
+
+Search by a specific file extension or caetgory:
+
+    resources -t jpg search "enemy"
+    resources -t ogg search "walking sound"
+    resources -t image search "character sheet"
+    resources -t audio search "game over"
+
+The -b flag is requred unless you create a $HOME/.resources.conf:
+
+    {
+        "repo":"/path/to/repo/",
+        "repo_cache":"/path/to/repo.cache/"
+    }
+
 ## Unicode filenames
 
 On mac, some files may accidentally become NFD. You can convert all filenames
@@ -58,3 +91,8 @@ This package depends upon third party libraries, with potentially
 different licences. See [praxis](https://github.com/loftafi/praxis),
 [zg](https://codeberg.org/atman/zg) and
 [zstbi](https://github.com/zig-gamedev/zstbi) for details.
+
+## Contributing
+
+Contributions under the MIT license are welcome. Consider raising an issue
+first to discuss the proposed change.
