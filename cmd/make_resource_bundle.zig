@@ -3,7 +3,7 @@ pub fn make_resource_bundle(
     gpa: Allocator,
     io: std.Io,
     resources: *Resources,
-    options: *const Options,
+    options: *const SaveOptions,
     config: *const Config,
     bundle_name: []const u8,
 ) !void {
@@ -24,8 +24,8 @@ const std = @import("std");
 const info = std.log.info;
 const Allocator = std.mem.Allocator;
 
-const Options = @import("resources").Options;
 const Resources = @import("resources").Resources;
 const Resource = @import("resources").Resource;
+const SaveOptions = Resources.SaveOptions;
 
 const Config = @import("config.zig").Config;

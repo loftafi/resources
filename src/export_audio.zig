@@ -9,7 +9,7 @@ pub fn generate_ogg_audio(
     io: std.Io,
     resource: *const Resource,
     resources: *Resources,
-    options: *const Options,
+    options: *const SaveOptions,
 ) (wav.Error || Allocator.Error || Resources.Error || error{FfmpegFailure} ||
     std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError ||
     std.Io.Writer.Error || std.Io.Reader.LimitedAllocError ||
@@ -226,7 +226,7 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 
 const Resources = @import("resources.zig").Resources;
 const Resource = @import("resources.zig").Resource;
-const Options = @import("resources.zig").Options;
+const SaveOptions = @import("resources.zig").Resources.SaveOptions;
 const uid_writer = @import("base62.zig").uid_writer;
 const write_folder_file_bytes = @import("resource.zig").write_folder_file_bytes;
 

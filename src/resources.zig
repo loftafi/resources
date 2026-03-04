@@ -235,7 +235,7 @@ pub const Resources = struct {
         io: std.Io,
         filename: []const u8,
         resources: std.AutoHashMapUnmanaged(u64, *const Resource),
-        options: *const Options,
+        options: *const SaveOptions,
         cache: []const u8,
     ) (Allocator.Error || Resources.Error || std.Io.File.OpenError ||
         std.Io.Writer.Error || std.Io.Writer.Error || std.Io.Reader.Error ||
@@ -848,6 +848,52 @@ pub const Resources = struct {
         ImageConversionError,
         NormalisationFailed,
     };
+
+    /// `saveBundle` is provided with these `SaveOptions` to govern what processing
+    /// should be done on files when a resource bundle is being created.
+    pub const SaveOptions = struct {
+        /// Request that audio files are included as is, or request that `wav`
+        audio: AudioOption = .original,
+        /// Request the exact `original` image, or request conversion to `jpg`
+        image: ImageOption = .original,
+
+        /// Normalise audio files for consistent volume.
+        normalise_audio: bool = false,
+
+        /// Reduce the size of any image that is wider orhigher than this limit.
+        max_image_size: Size = .{ .width = 10000, .height = 10000 },
+
+        /// Request the exact `original` image, or request conversion to `jpg`
+        pub const ImageOption = enum {
+            /// Do not convert images to jpg.
+            original,
+            /// Convert images to jpg.
+            jpg,
+        };
+
+        /// Request that audio files are included as is, or request that `wav`
+        /// files should be converted to `ogg` files.
+        pub const AudioOption = enum {
+            /// Do not process audio files.
+            original,
+            /// Normalise and convert `wav` files to `ogg` files.
+            ogg,
+        };
+    };
+
+    /// Used to indicate if a partial or exact search match is needed.
+    pub const Match = enum {
+        /// Return all resources where every single word in the query string
+        /// matches every single word in the resource filename/sentence in order.
+        exact,
+
+        /// All search results when a match occurs with or without accent.
+        unaccented,
+
+        /// Match when each word in the query string is found in
+        /// the resource filename/sentence.
+        partial,
+    };
 };
 
 /// Convert the extension of the file into an enum, and return both the
@@ -884,11 +930,6 @@ fn read_extension(path: []const u8) []const u8 {
         end -= 1;
     }
     return "";
-}
-
-/// Compare two `Resource` items by `uid`.
-pub fn lessThan(_: ?[]const u8, self: *Resource, other: *Resource) bool {
-    return self.uid < other.uid;
 }
 
 inline fn append_if_not_found(
@@ -1306,52 +1347,6 @@ test "bundle" {
     try expectEqualStrings(data2, data2b);
 }
 
-/// `saveBundle` is provided with these `Options` to govern what processing
-/// should be done on files when a resource bundle is being created.
-pub const Options = struct {
-    /// Request that audio files are included as is, or request that `wav`
-    audio: AudioOption = .original,
-    /// Request the exact `original` image, or request conversion to `jpg`
-    image: ImageOption = .original,
-
-    /// Normalise audio files for consistent volume.
-    normalise_audio: bool = false,
-
-    /// Reduce the size of any image that is wider orhigher than this limit.
-    max_image_size: Size = .{ .width = 10000, .height = 10000 },
-
-    /// Request the exact `original` image, or request conversion to `jpg`
-    pub const ImageOption = enum {
-        /// Do not convert images to jpg.
-        original,
-        /// Convert images to jpg.
-        jpg,
-    };
-
-    /// Request that audio files are included as is, or request that `wav`
-    /// files should be converted to `ogg` files.
-    pub const AudioOption = enum {
-        /// Do not process audio files.
-        original,
-        /// Normalise and convert `wav` files to `ogg` files.
-        ogg,
-    };
-};
-
-/// Used to indicate if a partial or exact search match is needed.
-pub const Match = enum {
-    /// Return all resources where every single word in the query string
-    /// matches every single word in the resource filename/sentence in order.
-    exact,
-
-    /// All search results when a match occurs with or without accent.
-    unaccented,
-
-    /// Match when each word in the query string is found in
-    /// the resource filename/sentence.
-    partial,
-};
-
 const builtin = @import("builtin");
 const std = @import("std");
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -1373,6 +1368,7 @@ const load_folder_file_bytes = @import("resource.zig").load_folder_file_bytes;
 const write_folder_file_bytes = @import("resource.zig").write_folder_file_bytes;
 const cache_has_file = @import("resource.zig").cache_has_file;
 const sentence_trim = @import("resource.zig").sentence_trim;
+const lessThan = @import("resource.zig").lessThan;
 
 pub const FileType = @import("root.zig").FileType;
 

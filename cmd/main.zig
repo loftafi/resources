@@ -89,7 +89,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (std.ascii.eqlIgnoreCase(command.?, "search")) {
-        var match: Match = .unaccented;
+        var match: Resources.Match = .unaccented;
         var keyword: ?[]const u8 = null;
 
         // Load resource folder
@@ -178,7 +178,7 @@ pub fn main(init: std.process.Init) !void {
 
         try load_resource_set(io, resources, &config);
 
-        const options: Options = .{
+        const options: SaveOptions = .{
             .image = .jpg,
             .audio = .ogg,
             .max_image_size = .{ .width = 1000, .height = 1000 },
@@ -399,10 +399,9 @@ const base62 = @import("resources").base62;
 const random = @import("resources").random;
 const get_file_type = @import("resources").get_file_type;
 const Resources = @import("resources").Resources;
+const SaveOptions = Resources.SaveOptions;
 const Resource = @import("resources").Resource;
 const SearchCategory = @import("resources").Resources.SearchCategory;
-const Match = @import("resources").Match;
-const Options = @import("resources").Options;
 
 const Config = @import("config.zig").Config;
 

@@ -1,4 +1,7 @@
-/// Count the appearance of  individual unique words sentences,
+//! UniqueWords builds a map of unique words, by looking for appearances of
+//! words in strings.
+
+/// Build a map of unique words that appear in a sequence of strings.
 pub const UniqueWords = struct {
     words: std.StringHashMap(void) = undefined,
 

@@ -161,12 +161,12 @@ pub const Resource = struct {
                 'l', 'L' => self.link = try allocator.dupe(u8, value),
                 'i', 'I' => {
                     if (value.len > max_uid_length) {
-                        self.uid = decode_uid(u64, value[0..max_uid_length]) catch {
+                        self.uid = base62.decode(u64, value[0..max_uid_length]) catch {
                             return error.InvalidResourceUID;
                         };
                         continue;
                     } else {
-                        self.uid = decode_uid(u64, value) catch {
+                        self.uid = base62.decode(u64, value) catch {
                             return error.InvalidResourceUID;
                         };
                     }
@@ -233,6 +233,11 @@ fn remove_extension(path: []const u8) []const u8 {
         end -= 1;
     }
     return path;
+}
+
+/// Compare two `Resource` items by `uid`.
+pub fn lessThan(_: ?[]const u8, self: *Resource, other: *Resource) bool {
+    return self.uid < other.uid;
 }
 
 /// Wav files don't have metadata files, so the metadata is extracted
@@ -603,8 +608,7 @@ const Allocator = std.mem.Allocator;
 
 const Normalize = @import("Normalize");
 
-pub const encode_uid = @import("base62.zig").encode;
-pub const decode_uid = @import("base62.zig").decode;
+const base62 = @import("base62.zig");
 
 pub const random = @import("random.zig");
 
