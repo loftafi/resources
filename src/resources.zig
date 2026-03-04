@@ -1,3 +1,10 @@
+//! This zig module supports collecting, searching, and bundling resources
+//! into a bundle for distribution. The most common use case for this is
+//! a game that wishes to pack all game reosurces into an individual bundle
+//! file. Attach metadata such as copyright information and an optional link
+//! to the source of the original file to make copyright and licence
+//! management easier.
+
 /// `Resources` is an index of file resources, loaded from a folder
 /// or a resource bundle. Each file may contain metadata such as
 /// creation time, url to file origin, and copyright owner.
@@ -11,7 +18,6 @@
 /// After all resources are loaded using `loadResource()` use `saveBundle()`
 /// to create place all used/needed  resources into a file bundle that you
 /// can later simply use `loadBundle()`.
-///
 pub const Resources = struct {
     /// Lookup resource by UID in metadata file.
     by_uid: std.AutoHashMap(u64, *Resource),
