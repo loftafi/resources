@@ -5,37 +5,47 @@
 //! to the source of the original file to make copyright and licence
 //! management easier.
 
-/// `Resources` is an index of file resources, loaded from a folder
-/// or a resource bundle. Each file may contain metadata such as
-/// creation time, url to file origin, and copyright owner.
+/// `Resources` holds a collection of `Resource` objects that describe
+/// file resources. `Resources` loads its `Resource` objects from either a
+/// folder or a resource bundle. Each `Resource` consists of a file, and a
+/// metadata information such as file creation time, url to file origin,
+/// and copyright owner.
 ///
 /// During development, on app startup use `loadDirectory` to load
-/// your resources from a directory on disk.
+/// your `Resource` items from a directory. In your release build, use
+/// `loadBundle` to load resources from a bundle file.
 ///
-/// When your app uses `lookup()` the resource uid is rememebered
-/// in the `used_resources`.
+/// Use `lookupOne()` or `lookup()` to find a `Resource` file record, along
+/// with `loadResource()` to read file contents.
+/// When you load file contents with `loadResource()` an internal
+/// `used_resources` array list remembers the uid of each resource used.
 ///
-/// After all resources are loaded using `loadResource()` use `saveBundle()`
-/// to create place all used/needed  resources into a file bundle that you
-/// can later simply use `loadBundle()`.
+/// After all resources have been loaded using `loadResource()`. You may use
+/// `saveBundle()` to export all files into a single bundle file.
+///
+/// After creating the bundle file, you can use `loadBundle()` instead of
+/// `loadDirectory()` to load your app or game data.
 pub const Resources = struct {
-    /// Lookup resource by UID in metadata file.
+    /// Lookup `Resource` by UID.
     by_uid: std.AutoHashMap(u64, *Resource),
 
-    /// Lookup resource by word found in sentence in metadata file. Or word
-    /// found in wav filename
-    by_word: SearchIndex(*Resource, lessThan),
-
-    /// Lookup resource by sentence in the metadata, or the the name
-    /// component of the filename:
+    /// Lookup `Resource` by the exact sentence string found in an `s:` field
+    /// in the metadata, or the the original name of the file if placed in
+    /// an `s:` field.
     by_sentence: SearchIndex(*Resource, lessThan),
 
+    /// Lookup `Resource` by an individual word found in sentence in
+    /// the file metadata.
+    by_word: SearchIndex(*Resource, lessThan),
+
+    /// A long living memory arena holds file metadata for the lifetime of the
+    /// `Resources` struct.
     arena: *std.heap.ArenaAllocator,
     arena_allocator: Allocator,
-    parent_allocator: Allocator,
 
-    /// A helper that normalises a word or phrase into an internal buffer.
-    normaliser: Normaliser,
+    /// A gpa allocator provided at creation time to be used for short lived
+    /// temporary memory allocations.
+    parent_allocator: Allocator,
 
     /// If `loadDirectory` was used, this is the path to the folder.
     folder: []const u8 = "",
@@ -43,13 +53,18 @@ pub const Resources = struct {
     /// If `loadBundle` was used, this is the path to the bundle.
     bundle_file: []const u8 = "",
 
+    /// A unicode library is used to normalise words and phrases.
     normalise: Normalize,
 
-    /// Keeps a record of resources that been loaded with `loadResource`.
+    /// A simple library used to normalise Ancient Greek text.
+    normaliser: Normaliser,
+
+    /// When not null, every `Resource` loaded with `loadResource` is
+    /// placed into this list.
     used_resources: ?std.AutoHashMapUnmanaged(u64, *const Resource),
 
     /// Create an empty file bundle including an internal arena allocator.
-    /// Follow up `create()` with either `loadDirectory()` or `loadBundle()`.
+    /// Follow up with either `loadDirectory()` or `loadBundle()`.
     pub fn create(parent_allocator: Allocator) error{OutOfMemory}!*Resources {
         var arena = try parent_allocator.create(std.heap.ArenaAllocator);
         errdefer parent_allocator.destroy(arena);
@@ -76,6 +91,7 @@ pub const Resources = struct {
         return resources;
     }
 
+    /// Cleanup the arena and any short lived objects used by this struct.
     pub fn destroy(self: *Resources) void {
         self.normalise.deinit(self.arena_allocator);
         self.normaliser.deinit(self.parent_allocator);
@@ -234,8 +250,8 @@ pub const Resources = struct {
         }
     }
 
-    // Save the `manifest` list of resources into a single data data file
-    // with a table of contents.
+    /// Save a `manifest` list of `Resource` files into a single data bundle
+    /// file along with a table of contents.
     pub fn saveBundle(
         self: *Resources,
         io: std.Io,
@@ -461,7 +477,7 @@ pub const Resources = struct {
         try writer.interface.flush();
     }
 
-    /// Return true if a uid exists in a resource bundle list.
+    /// Return `true` if a `uid` exists in a `BundleResource` list.
     fn header_contains(items: []BundleResource, uid: u64) bool {
         for (items) |item| {
             if (item.uid == uid) return true;
