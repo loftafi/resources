@@ -11,7 +11,5 @@ pub const Resource = @import("resource.zig").Resource;
 pub const ScaleMode = @import("export_image.zig").ScaleMode;
 pub const Size = @import("resources.zig").Size;
 
-pub const get_file_type = @import("resources.zig").get_file_type;
-
 pub const base62 = @import("base62.zig");
 pub const random = @import("random.zig");
