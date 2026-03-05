@@ -5,26 +5,28 @@
 //! to the source of the original file to make copyright and licence
 //! management easier.
 
-/// `Resources` holds a collection of `Resource` objects that describe
-/// file resources. `Resources` loads its `Resource` objects from either a
-/// folder or a resource bundle. Each `Resource` consists of a file, and a
-/// metadata information such as file creation time, url to file origin,
-/// and copyright owner.
+/// `Resources` holds a collection of `Resource` objects. Each `Resource`
+/// represents a file. `Resource` objects are loaded from a _directory_ or a
+/// resource _bundle_. A `Resource` record describes not just a file, but
+/// also holds metadata information such as: file creation time, url to
+/// file origin, and the copyright owner.
 ///
-/// During development, on app startup use `loadDirectory` to load
-/// your `Resource` items from a directory. In your release build, use
-/// `loadBundle` to load resources from a bundle file.
+/// **Development builds** use `loadDirectory` to load `Resource` files
+/// from a _resource directory_.
 ///
-/// Use `lookupOne()` or `lookup()` to find a `Resource` file record, along
-/// with `loadResource()` to read file contents.
-/// When you load file contents with `loadResource()` an internal
-/// `used_resources` array list remembers the uid of each resource used.
+/// **Release builds** use `loadBundle` to load `Resource` files
+/// from a _bundle file_.
 ///
-/// After all resources have been loaded using `loadResource()`. You may use
-/// `saveBundle()` to export all files into a single bundle file.
+/// One convenient method to create a bundle is by using the following proces.
 ///
-/// After creating the bundle file, you can use `loadBundle()` instead of
-/// `loadDirectory()` to load your app or game data.
+/// 1. During app runtime, Use `lookupOne()` or `lookup()` to find
+///    a `Resource` record, then
+/// 2. use `loadResource()` to read file contents.
+/// 3. `loadResource()` can be used to build an internal `used_resources`
+///    list to remember all required resorces.
+/// 4. use `saveBundle()` to export all `used_resources`
+///    into a single bundle file.
+///
 pub const Resources = struct {
     /// Lookup `Resource` by UID.
     by_uid: std.AutoHashMap(u64, *Resource),
@@ -808,11 +810,18 @@ pub const Resources = struct {
         unreachable;
     }
 
-    /// Filter searches by resource type
+    /// `SearchCategory` is a search filter option.
+    ///
+    /// For example, `SearchCategory`.`wav` only `matches` the `wav` file type.
+    /// `SearchCategory`.`audio` `matches` `wav`, `ogg`, and `mp3`
     pub const SearchCategory = enum {
+        // All files of any type
         any,
+        /// Search for any audio file type such as `wav`, `ogg`, and `mp3`.
         audio,
+        /// Search for any image type, such as `jpg` and `png`.
         image,
+        /// Search for any font type such as `ttf` and `otf`.
         font,
         wav,
         jpg,
@@ -829,6 +838,7 @@ pub const Resources = struct {
         mp3,
         js,
 
+        /// Return true if this `SearchCateogry` matches a file type.
         pub fn matches(self: SearchCategory, value: FileType) bool {
             return switch (self) {
                 .any => true,
@@ -871,8 +881,7 @@ pub const Resources = struct {
         NormalisationFailed,
     };
 
-    /// `saveBundle` is provided with these `SaveOptions` to govern what processing
-    /// should be done on files when a resource bundle is being created.
+    /// `SaveOptions` provides export configuration options to `saveBundle()`.
     pub const SaveOptions = struct {
         /// Request that audio files are included as is, or request that `wav`
         audio: AudioOption = .original,
@@ -917,6 +926,8 @@ pub const Resources = struct {
         partial,
     };
 
+    /// Splits a complete filename and path into the basic name and file
+    /// extension components.
     pub const FilenameComponents = struct {
         name: []const u8,
         extension: FileType,

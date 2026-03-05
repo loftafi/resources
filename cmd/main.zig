@@ -345,7 +345,7 @@ pub fn generate_uid_metadata(
         };
     }
 
-    var file_info = get_file_type(source_filename);
+    var file_info = Resources.FilenameComponents.split(source_filename);
 
     const target_filename = try std.fmt.allocPrint(allocator, "{s}.{t}", .{ uid, file_info.extension });
     defer allocator.free(target_filename);
@@ -397,7 +397,6 @@ const zeit = @import("zeit");
 
 const base62 = @import("resources").base62;
 const random = @import("resources").random;
-const get_file_type = @import("resources").get_file_type;
 const Resources = @import("resources").Resources;
 const SaveOptions = Resources.SaveOptions;
 const Resource = @import("resources").Resource;
