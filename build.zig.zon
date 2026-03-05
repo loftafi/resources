@@ -27,6 +27,7 @@
         "build.zig",
         "build.zig.zon",
         "src",
+        "build/find_ndk.zig",
         "LICENSE.md",
         "README.md",
     },
