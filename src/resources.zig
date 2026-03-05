@@ -519,7 +519,7 @@ pub const Resources = struct {
         while (i.next(io) catch return error.ReadRepoFileFailed) |file| {
             if (file.kind != .file) continue;
 
-            const file_info = get_file_type(file.name);
+            const file_info = FilenameComponents.split(file.name);
 
             if (filter) |f| {
                 if (f(file_info.name, file_info.extension)) continue;
@@ -916,29 +916,34 @@ pub const Resources = struct {
         /// the resource filename/sentence.
         partial,
     };
-};
 
-/// Convert the extension of the file into an enum, and return both the
-/// extension and the name component of a filename. i.e `/etc/jay~info.wav`
-/// returns `.{ .name = "jay~info" .extension = .wav}`
-pub fn get_file_type(file: []const u8) struct { name: []const u8, extension: FileType } {
-    const ext = read_extension(file);
-    if (ext.len == 0)
-        return .{ .name = file, .extension = .unknown };
+    pub const FilenameComponents = struct {
+        name: []const u8,
+        extension: FileType,
 
-    const full_name = file[0 .. file.len - ext.len - 1];
+        /// Convert a filename with a file extension into a `name`
+        /// plus `extension` enum. Any path components are removed.
+        /// i.e `/etc/music.wav` becomes `.{ .name = "music" .extension = .wav}`
+        pub fn split(file: []const u8) FilenameComponents {
+            const ext = read_extension(file);
+            if (ext.len == 0)
+                return .{ .name = file, .extension = .unknown };
 
-    var cut = full_name.len;
-    while (cut > 0) {
-        if (full_name[cut - 1] == '/' or full_name[cut - 1] == '\\') break;
-        cut -= 1;
-    }
+            const full_name = file[0 .. file.len - ext.len - 1];
 
-    return .{
-        .name = full_name[cut..],
-        .extension = FileType.parse(ext),
+            var cut = full_name.len;
+            while (cut > 0) {
+                if (full_name[cut - 1] == '/' or full_name[cut - 1] == '\\') break;
+                cut -= 1;
+            }
+
+            return .{
+                .name = full_name[cut..],
+                .extension = FileType.parse(ext),
+            };
+        }
     };
-}
+};
 
 /// Return the file extension or null if no file extension exists. File
 /// extensions of over 6 charachters are considerd invalid and ignored.
@@ -1017,7 +1022,7 @@ test "load_resource image" {
     defer resources.destroy();
 
     const file = "./test/repo/GzeBWE.png";
-    const info = get_file_type(file);
+    const info = Resources.FilenameComponents.split(file);
     var resource: Resource = .empty;
     try resource.load(std.testing.allocator, std.testing.allocator, io, &resources.normalise, file, info.name, info.extension);
     defer resource.deinit(std.testing.allocator);
@@ -1040,7 +1045,7 @@ test "load_resource audio" {
     defer resources.destroy();
 
     const file = "./test/repo/jay~ἄρτος.wav";
-    const info = get_file_type(file);
+    const info = Resources.FilenameComponents.split(file);
     try expectEqualStrings("jay~ἄρτος", info.name);
     try expectEqual(.wav, info.extension);
 
@@ -1246,19 +1251,19 @@ test "file_with_full_stop" {
 }
 
 test "file_name_split" {
-    const info = get_file_type("fish.jpg");
+    const info = Resources.FilenameComponents.split("fish.jpg");
     try expectEqualStrings("fish", info.name);
     try expectEqual(.jpg, info.extension);
 
-    const info2 = get_file_type("opens.xml");
+    const info2 = Resources.FilenameComponents.split("opens.xml");
     try expectEqualStrings("opens", info2.name);
     try expectEqual(.xml, info2.extension);
 
-    const info3 = get_file_type("/fish/hat/opens.xml");
+    const info3 = Resources.FilenameComponents.split("/fish/hat/opens.xml");
     try expectEqualStrings("opens", info3.name);
     try expectEqual(.xml, info3.extension);
 
-    const info4 = get_file_type("1122.xml");
+    const info4 = Resources.FilenameComponents.split("1122.xml");
     try expectEqualStrings("1122", info4.name);
     try expectEqual(.xml, info4.extension);
 }
