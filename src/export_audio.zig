@@ -29,7 +29,7 @@ pub fn generate_ogg_audio(
         };
         defer audio.destroy(gpa);
         if (audio.max < 0.95) {
-            std.log.debug("Normalising {f} volume from {d} to {d}", .{ uid_writer(u64, resource.uid), audio.max, 0.95 });
+            std.log.debug("Normalising {f} volume from {d} to {d}", .{ base62.writer(u64, resource.uid), audio.max, 0.95 });
             _ = audio.normalise(0.95);
         }
         audio.faders();
@@ -227,7 +227,7 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 const Resources = @import("resources.zig").Resources;
 const Resource = @import("resources.zig").Resource;
 const SaveOptions = @import("resources.zig").Resources.SaveOptions;
-const uid_writer = @import("base62.zig").uid_writer;
+const base62 = @import("base62.zig");
 const write_folder_file_bytes = @import("resource.zig").write_folder_file_bytes;
 
 const wav = @import("wav.zig");

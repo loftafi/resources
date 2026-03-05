@@ -208,7 +208,7 @@ pub fn resdump(resources: *Resources) void {
         else
             "";
         std.debug.print("{f: >13} {s: >12} {d:8} {t:5}  {s}\n", .{
-            base62.uid_writer(u64, resource.*.uid),
+            base62.writer(u64, resource.*.uid),
             resource.*.date orelse "",
             resource.*.size,
             resource.*.resource,

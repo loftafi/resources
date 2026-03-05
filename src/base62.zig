@@ -1,13 +1,10 @@
-//! Converts an unsigned integer to and from a short uid string.
-//!
-//! A base62 library could be used in place of this code, but
-//! lets avoid an external dependency for something so simple.
+//! base62 supports converstion between integers and base62 encoded strings.
 
-/// Read a uid and encode it into a result string. Return a
-/// convenience slice into the result string.
+/// encode an integer into a base62 encoded string. The result is placed
+/// into the `result` buffer, and returned as a `[]const u8` slice.
 ///
-/// The result buffer can hold all of the digits of a u128, so
-/// no buffer overflow is possible unless zig adds a u256.
+/// The buffer requires 40 bytes to support the base62 encoded length of
+/// a u128 integer.
 pub fn encode(comptime I: type, uid: I, result: *[40:0]u8) []const u8 {
     var i: usize = 0;
     var value: I = uid;
@@ -40,31 +37,8 @@ pub fn encode(comptime I: type, uid: I, result: *[40:0]u8) []const u8 {
     return result[0..i];
 }
 
-pub fn encode_writer(comptime I: type, uid: I) type {
-    return struct {
-        pub fn format(_: @This(), out: *Writer) Writer.Error!void {
-            var value: I = uid;
-
-            if (uid == 0) {
-                try out.writeByte('A');
-                return;
-            }
-            while (value > 0) {
-                const r = @rem(value, 62);
-                value = @divFloor(value, 62);
-                if (r < 26) {
-                    try out.writeByte('A' + @as(u8, @intCast(r)));
-                } else if (r < 52) {
-                    try out.writeByte('a' + (@as(u8, @intCast(r)) - 26));
-                } else {
-                    try out.writeByte('0' + (@as(u8, @intCast(r)) - 52));
-                }
-            }
-        }
-    };
-}
-
-pub fn uid_writer(comptime I: type, uid: I) struct {
+/// A `base62` print formatter for a runtime known int.
+pub fn writer(comptime I: type, uid: I) struct {
     uid: I,
 
     pub fn format(self: *const @This(), out: *Writer) Writer.Error!void {
@@ -88,6 +62,31 @@ pub fn uid_writer(comptime I: type, uid: I) struct {
     }
 } {
     return .{ .uid = uid };
+}
+
+/// A `base62` print formatter for a `comptime_int`.
+pub fn encode_writer(comptime I: type, uid: I) type {
+    return struct {
+        pub fn format(_: @This(), out: *Writer) Writer.Error!void {
+            var value: I = uid;
+
+            if (uid == 0) {
+                try out.writeByte('A');
+                return;
+            }
+            while (value > 0) {
+                const r = @rem(value, 62);
+                value = @divFloor(value, 62);
+                if (r < 26) {
+                    try out.writeByte('A' + @as(u8, @intCast(r)));
+                } else if (r < 52) {
+                    try out.writeByte('a' + (@as(u8, @intCast(r)) - 26));
+                } else {
+                    try out.writeByte('0' + (@as(u8, @intCast(r)) - 52));
+                }
+            }
+        }
+    };
 }
 
 /// Convert a base62 encoded string back to an integer.

@@ -185,7 +185,7 @@ pub const Resources = struct {
     ) error{ OutOfMemory, ReadMetadataFailed }!void {
         if (self.by_uid.contains(r.uid)) {
             err("duplicated uid {any}. bundle_offset={d} filename={s}\n", .{
-                base62.uid_writer(u64, r.uid),
+                base62.writer(u64, r.uid),
                 r.bundle_offset orelse 0,
                 r.filename orelse "",
             });
@@ -209,7 +209,7 @@ pub const Resources = struct {
                 continue;
             self.by_sentence.add(self.arena_allocator, sentence, r) catch |e| {
                 err("invalid metadata in resource {f}. bundle_offset={d} filename={s} Error: {any}\n", .{
-                    base62.uid_writer(u64, r.uid),
+                    base62.writer(u64, r.uid),
                     r.bundle_offset orelse 0,
                     r.filename orelse "",
                     e,
@@ -225,7 +225,7 @@ pub const Resources = struct {
         const uid_string = base62.encode(u64, r.uid, &buffer);
         self.by_sentence.add(self.arena_allocator, uid_string, r) catch |e| {
             err("Error adding resource {f} uid sentence. bundle_offset={d} filename={s} Error: {any}\n", .{
-                base62.uid_writer(u64, r.uid),
+                base62.writer(u64, r.uid),
                 r.bundle_offset orelse 0,
                 r.filename orelse "",
                 e,
@@ -236,7 +236,7 @@ pub const Resources = struct {
         var unique = UniqueWords.init(self.arena_allocator);
         defer unique.deinit();
         unique.addArray(&r.sentences.items) catch |f| {
-            err("invalid sentence content. Resource: {f} Error: {any}", .{ uid_formatter(u64, r.uid), f });
+            err("invalid sentence content. Resource: {f} Error: {any}", .{ base62.writer(u64, r.uid), f });
             return error.ReadMetadataFailed;
         };
         var it = unique.words.iterator();
@@ -247,7 +247,7 @@ pub const Resources = struct {
                     return error.ReadMetadataFailed;
                 };
             } else {
-                warn("empty sentence keyword in {f}\n", .{uid_formatter(u64, r.uid)});
+                warn("empty sentence keyword in {f}\n", .{base62.writer(u64, r.uid)});
             }
         }
     }
@@ -1420,9 +1420,7 @@ const generate_ogg_audio = @import("export_audio.zig").generate_ogg_audio;
 const Size = @import("export_image.zig").Size;
 
 pub const wav = @import("wav.zig");
-
 pub const base62 = @import("base62.zig");
-const uid_formatter = @import("base62.zig").uid_writer;
 
 const BinaryReader = @import("binary_reader.zig");
 const BinaryWriter = @import("binary_writer.zig");
