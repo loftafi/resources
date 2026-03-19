@@ -24,7 +24,7 @@ pub fn exportImage(
     resources: *Resources,
     bounded: Size,
     mode: ScaleMode,
-    image_type: FileType,
+    image_type: Type,
 ) (Allocator.Error || Resources.Error || error{ ExportsJpgOrPngOnly, ImageConversionError } || std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Writer.Error || std.Io.File.StatError || std.Io.Reader.LimitedAllocError)![]const u8 {
     zstbi.init(allocator, io);
     defer zstbi.deinit();
@@ -472,9 +472,10 @@ const debug = std.log.debug;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-const Resource = @import("resources.zig").Resource;
-const Resources = @import("resources.zig").Resources;
-const FileType = @import("root.zig").FileType;
+const Resource = @import("resource.zig").Resource;
+const Resources = @import("Resources.zig");
+const Type = @import("root.zig").Type;
+
 const zstbi = @import("zstbi");
 const Image = zstbi.Image;
 

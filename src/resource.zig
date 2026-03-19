@@ -13,7 +13,7 @@ pub const Resource = struct {
     link: ?[]const u8,
     sentences: ArrayListUnmanaged([]const u8),
 
-    resource: FileType,
+    resource: Type,
 
     // on disk resource has a filename
     filename: ?[:0]u8 = null,
@@ -73,7 +73,7 @@ pub const Resource = struct {
         normalise: *const Normalize,
         filename: []const u8,
         file_name: []const u8,
-        file_type: FileType,
+        file_type: Type,
     ) (error{OutOfMemory} || Resources.Error || std.Io.File.StatError || std.Io.File.OpenError || std.fmt.BufPrintError)!void {
         if (filename.len > 0) self.filename = try arena.dupeZ(u8, filename);
 
@@ -405,11 +405,11 @@ pub fn load_file_byte_slice(
 test "read resource info" {
     const text = "i:f43ih\nd:202309072345\nc:copy\ns:ὁ ἄρτος.\nv:true\n\n";
     var data = Parser.init(text);
-    const element = try settings.next(&data);
+    const element = try Setting.next(&data);
     try expect(element != null);
     try expectEqual(.uid, element.?.setting);
     try expectEqualStrings("f43ih", element.?.value);
-    const element2 = try settings.next(&data);
+    const element2 = try Setting.next(&data);
     try expect(element2 != null);
     try expectEqual(.date, element2.?.setting);
     try expectEqualStrings("202309072345", element2.?.value);
@@ -418,11 +418,11 @@ test "read resource info" {
 test "read resource info space" {
     const text = " i:f43ih  \n\r\nd:   202309072345   \nc:copy\ns:ὁ ἄρτος.\nv:true\n\n";
     var data = Parser.init(text);
-    const element = try settings.next(&data);
+    const element = try Setting.next(&data);
     try expect(element != null);
     try expectEqual(.uid, element.?.setting);
     try expectEqualStrings("f43ih", element.?.value);
-    const element2 = try settings.next(&data);
+    const element2 = try Setting.next(&data);
     try expect(element2 != null);
     try expectEqual(.date, element2.?.setting);
     try expectEqualStrings("202309072345", element2.?.value);
@@ -614,8 +614,7 @@ const base62 = @import("base62.zig");
 
 pub const random = @import("random.zig");
 
-const settings = @import("settings.zig");
-const Setting = settings.Setting;
-const FileType = @import("root.zig").FileType;
-const Resources = @import("resources.zig").Resources;
+const Setting = @import("Setting.zig");
+const Type = @import("root.zig").Type;
+const Resources = @import("Resources.zig");
 const Parser = @import("praxis").Parser;

@@ -1,53 +1,53 @@
 /// Trim and tokenize a sentence.
-pub const WordFinder = struct {
-    data: []const u8 = "",
+pub const WordFinder = @This();
 
-    pub fn init(data: []const u8) WordFinder {
-        return .{
-            .data = data,
-        };
+data: []const u8 = "",
+
+pub fn init(data: []const u8) WordFinder {
+    return .{
+        .data = data,
+    };
+}
+
+/// Skip over any punctuation characters and return the next
+/// string value in the data. Returns null when no more words are
+/// available.
+pub fn next(self: *WordFinder) error{
+    Utf8EncodesSurrogateHalf,
+    Utf8CodepointTooLarge,
+    Utf8OverlongEncoding,
+    Utf8ExpectedContinuation,
+    Utf8InvalidStartByte,
+}!?[]const u8 {
+    if (self.data.len == 0) return null;
+
+    while (self.data.len > 0 and is_not_word(self.data[0])) {
+        self.data.ptr += 1;
+        self.data.len -= 1;
     }
 
-    /// Skip over any punctuation characters and return the next
-    /// string value in the data. Returns null when no more words are
-    /// available.
-    pub fn next(self: *WordFinder) error{
-        Utf8EncodesSurrogateHalf,
-        Utf8CodepointTooLarge,
-        Utf8OverlongEncoding,
-        Utf8ExpectedContinuation,
-        Utf8InvalidStartByte,
-    }!?[]const u8 {
-        if (self.data.len == 0) return null;
-
-        while (self.data.len > 0 and is_not_word(self.data[0])) {
-            self.data.ptr += 1;
-            self.data.len -= 1;
-        }
-
-        while (self.data.len > 0) {
-            const l: usize = try unicode.utf8ByteSequenceLength(self.data[0]);
-            const c: u21 = try unicode.utf8Decode(self.data[0..l]);
-            if (!is_not_word(c)) break;
-            self.data.ptr += l;
-            self.data.len -= l;
-        }
-
-        var end: usize = 0;
-        while (self.data.len > end) {
-            const l: usize = try unicode.utf8ByteSequenceLength(self.data[end]);
-            const c: u21 = try unicode.utf8Decode(self.data[end..(end + l)]);
-            if (is_not_word(c)) break;
-            end += l;
-        }
-        if (end == 0) return null;
-
-        const token = self.data[0..end];
-        self.data.ptr += end;
-        self.data.len -= end;
-        return token;
+    while (self.data.len > 0) {
+        const l: usize = try unicode.utf8ByteSequenceLength(self.data[0]);
+        const c: u21 = try unicode.utf8Decode(self.data[0..l]);
+        if (!is_not_word(c)) break;
+        self.data.ptr += l;
+        self.data.len -= l;
     }
-};
+
+    var end: usize = 0;
+    while (self.data.len > end) {
+        const l: usize = try unicode.utf8ByteSequenceLength(self.data[end]);
+        const c: u21 = try unicode.utf8Decode(self.data[end..(end + l)]);
+        if (is_not_word(c)) break;
+        end += l;
+    }
+    if (end == 0) return null;
+
+    const token = self.data[0..end];
+    self.data.ptr += end;
+    self.data.len -= end;
+    return token;
+}
 
 pub inline fn is_not_word(c: u21) bool {
     return c < '0' or (c > '9' and c < 'A') or (c > 'Z' and c < 'a') or

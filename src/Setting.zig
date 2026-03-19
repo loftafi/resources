@@ -1,12 +1,9 @@
-//! Read each `Setting` line-by-line from a `Parser`.
-
-pub const Self = @This();
+/// Read each `Setting` line-by-line from a `Parser`.
+pub const Setting = @This();
 
 /// Describes an individual metadata entry in a metadata file.
-pub const Setting = struct {
-    setting: Type,
-    value: []const u8,
-};
+setting: Type,
+value: []const u8,
 
 /// Read a setting from a `Parser`. Returns null if the data contains no
 /// more bytes, or bytes exist, but the bytes don't represent a correctly
@@ -66,22 +63,22 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 test "read settings" {
     var data = Parser.init("i:1234\nd:20002010\ns:hello sentence");
     {
-        const setting = try Self.next(&data);
+        const setting = try Setting.next(&data);
         try expect(setting != null);
         try expectEqual(.uid, setting.?.setting);
     }
     {
-        const setting = try Self.next(&data);
+        const setting = try Setting.next(&data);
         try expect(setting != null);
         try expectEqual(.date, setting.?.setting);
     }
     {
-        const setting = try Self.next(&data);
+        const setting = try Setting.next(&data);
         try expect(setting != null);
         try expectEqual(.sentence, setting.?.setting);
     }
     {
-        const setting = try Self.next(&data);
+        const setting = try Setting.next(&data);
         try expect(setting == null);
     }
 }

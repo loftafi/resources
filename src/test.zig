@@ -1,7 +1,7 @@
 const std = @import("std");
 
 test {
-    const resources = @import("resources.zig");
+    const resources = @import("Resources.zig");
     std.testing.refAllDecls(resources);
 
     const resource = @import("resource.zig");
