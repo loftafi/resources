@@ -59,6 +59,8 @@ pub const Resource = struct {
         if (self.filename != null) allocator.free(self.filename.?);
         if (self.copyright != null) allocator.free(self.copyright.?);
         if (self.date != null) allocator.free(self.date.?);
+
+        self.* = undefined;
     }
 
     /// Load a data file from the resources folder into the search index.
@@ -478,9 +480,9 @@ test "add_sentence" {
 }
 
 test "wav_filename" {
-    const allocator = std.testing.allocator;
-    var resources = try Resources.create(allocator);
-    defer resources.destroy();
+    const gpa = std.testing.allocator;
+    var resources: Resources = try .init(gpa);
+    defer resources.deinit(gpa);
 
     {
         const name = extract_wav_name("fish9.wav");

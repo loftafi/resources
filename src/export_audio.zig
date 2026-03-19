@@ -189,18 +189,17 @@ test "audio_to_ogg" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var resources = try Resources.create(gpa);
-    defer resources.destroy();
+    var resources: Resources = try .init(gpa);
+    defer resources.deinit(gpa);
+    _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
-    _ = try resources.loadDirectory(io, "./test/repo/", null);
-    const resource = try resources.lookupOne("ἄρτος", .wav, gpa);
-
+    const resource = try resources.lookupOne(gpa, "ἄρτος", .wav);
     try expectEqual(true, resource.?.visible);
     try expectEqual(.wav, resource.?.resource);
     try expectEqual(1, resource.?.sentences.items.len);
     try expectEqualStrings("ἄρτος", resource.?.sentences.items[0]);
 
-    const data = try generate_ogg_audio(gpa, io, resource.?, resources, &.{ .normalise_audio = true });
+    const data = try generate_ogg_audio(gpa, io, resource.?, &resources, &.{ .normalise_audio = true });
     defer gpa.free(data);
 
     // Different versions of ffmpeg create a slightly different sized file.

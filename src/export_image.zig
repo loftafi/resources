@@ -416,22 +416,22 @@ test "export_image" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var resources = try Resources.create(std.testing.allocator);
-    defer resources.destroy();
-    _ = try resources.loadDirectory(io, "./test/repo/", null);
+    var resources: Resources = try .init(gpa);
+    defer resources.deinit(gpa);
+    _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
     var tmp = try std.Io.Dir.cwd().openDir(io, "/tmp/", .{});
     defer tmp.close(io);
 
     {
-        const resource = try resources.lookupOne("μάχαιρα", .image, gpa);
+        const resource = try resources.lookupOne(gpa, "μάχαιρα", .image);
         try expect(resource != null);
 
         const data = try exportImage(
             gpa,
             io,
             resource.?,
-            resources,
+            &resources,
             .{ .width = 800, .height = 800 },
             .cover,
             .jpg,
@@ -443,14 +443,14 @@ test "export_image" {
     }
 
     {
-        const resource = try resources.lookupOne("δύο κρέα", .image, gpa);
+        const resource = try resources.lookupOne(gpa, "δύο κρέα", .image);
         try expect(resource != null);
 
         const data2 = try exportImage(
             gpa,
             io,
             resource.?,
-            resources,
+            &resources,
             .{ .width = 300, .height = 120 },
             .cover,
             .png,

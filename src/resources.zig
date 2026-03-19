@@ -29,7 +29,7 @@
 ///
 pub const Resources = struct {
     /// Lookup `Resource` by UID.
-    by_uid: std.AutoHashMap(u64, *Resource),
+    by_uid: std.AutoHashMapUnmanaged(u64, *Resource),
 
     /// Lookup `Resource` by the exact sentence string found in an `s:` field
     /// in the metadata, or the the original name of the file if placed in
@@ -42,12 +42,7 @@ pub const Resources = struct {
 
     /// A long living memory arena holds file metadata for the lifetime of the
     /// `Resources` struct.
-    arena: *std.heap.ArenaAllocator,
-    arena_allocator: Allocator,
-
-    /// A gpa allocator provided at creation time to be used for short lived
-    /// temporary memory allocations.
-    parent_allocator: Allocator,
+    arena: std.heap.ArenaAllocator,
 
     /// If `loadDirectory` was used, this is the path to the folder.
     folder: []const u8 = "",
@@ -56,7 +51,7 @@ pub const Resources = struct {
     bundle_file: []const u8 = "",
 
     /// A unicode library is used to normalise words and phrases.
-    normalise: Normalize,
+    normalise: ?Normalize,
 
     /// A simple library used to normalise Ancient Greek text.
     normaliser: Normaliser,
@@ -67,62 +62,49 @@ pub const Resources = struct {
 
     /// Create an empty file bundle including an internal arena allocator.
     /// Follow up with either `loadDirectory()` or `loadBundle()`.
-    pub fn create(parent_allocator: Allocator) error{OutOfMemory}!*Resources {
-        var arena = try parent_allocator.create(std.heap.ArenaAllocator);
-        errdefer parent_allocator.destroy(arena);
-        arena.* = std.heap.ArenaAllocator.init(parent_allocator);
-
-        const arena_allocator = arena.allocator();
-        const normalise = try Normalize.init(arena_allocator);
-        const resources = try parent_allocator.create(Resources);
-
-        resources.* = Resources{
-            .normalise = normalise,
-            .by_uid = std.AutoHashMap(u64, *Resource).init(arena_allocator),
+    pub fn init(gpa: Allocator) (Allocator.Error)!Resources {
+        return .{
+            .arena = .init(gpa),
+            .normalise = null,
+            .by_uid = .empty,
             .by_word = .empty,
             .by_sentence = .empty,
             .normaliser = .empty,
-            .arena = arena,
-            .arena_allocator = arena_allocator,
-            .parent_allocator = parent_allocator,
             .folder = "",
             .bundle_file = "",
             .used_resources = null,
         };
-
-        return resources;
     }
 
     /// Cleanup the arena and any short lived objects used by this struct.
-    pub fn destroy(self: *Resources) void {
-        self.normalise.deinit(self.arena_allocator);
-        self.normaliser.deinit(self.parent_allocator);
+    pub fn deinit(self: *Resources, gpa: Allocator) void {
+        if (self.normalise != null)
+            self.normalise.?.deinit(self.arena.allocator());
 
-        if (self.used_resources) |*manifest| {
-            manifest.deinit(self.arena_allocator);
-        }
+        self.normaliser.deinit(gpa);
+
+        if (self.used_resources) |*manifest|
+            manifest.deinit(self.arena.allocator());
 
         // Iterate over the master resource list to
         // free each resource.
         var i = self.by_uid.iterator();
-        while (i.next()) |item| {
-            item.value_ptr.*.destroy(self.arena_allocator);
-        }
-        self.by_uid.deinit();
+        while (i.next()) |item|
+            item.value_ptr.*.destroy(self.arena.allocator());
+
+        self.by_uid.deinit(self.arena.allocator());
 
         // Relese the other indexes into the resources
-        self.by_word.deinit(self.arena_allocator);
-        self.by_sentence.deinit(self.arena_allocator);
-        if (self.folder.len > 0) {
-            self.arena_allocator.free(self.folder);
-        }
-        if (self.bundle_file.len > 0) {
-            self.arena_allocator.free(self.bundle_file);
-        }
+        self.by_word.deinit(self.arena.allocator());
+        self.by_sentence.deinit(self.arena.allocator());
+        if (self.folder.len > 0)
+            self.arena.allocator().free(self.folder);
+
+        if (self.bundle_file.len > 0)
+            self.arena.allocator().free(self.bundle_file);
 
         self.arena.deinit();
-        self.parent_allocator.destroy(self.arena);
-        self.parent_allocator.destroy(self);
+        self.* = undefined;
     }
 
     /// Load the table of contents of a resource bundle into memory.
@@ -151,8 +133,8 @@ pub const Resources = struct {
 
         const entries = try rb.interface.takeInt(u24, e);
         for (0..entries) |_| {
-            var r = try Resource.create(self.arena_allocator);
-            errdefer r.destroy(self.arena_allocator);
+            var r = try Resource.create(self.arena.allocator());
+            errdefer r.destroy(self.arena.allocator());
             const resource_type = try rb.interface.takeInt(u8, e);
             r.resource = @enumFromInt(resource_type);
             r.uid = try rb.interface.takeInt(u64, e);
@@ -161,15 +143,15 @@ pub const Resources = struct {
             for (0..sentence_count) |_| {
                 const name_len: u8 = try rb.interface.takeInt(u8, e);
                 try rb.interface.readSliceAll(buffer[0..name_len]);
-                const text = try self.arena_allocator.dupe(u8, buffer[0..name_len]);
-                try r.sentences.append(self.arena_allocator, text);
+                const text = try self.arena.allocator().dupe(u8, buffer[0..name_len]);
+                try r.sentences.append(self.arena.allocator(), text);
             }
             r.bundle_offset = try rb.interface.takeInt(u64, e);
 
             try self.registerResource(r, null);
         }
 
-        self.bundle_file = try self.arena_allocator.dupe(u8, bundle_filename);
+        self.bundle_file = try self.arena.allocator().dupe(u8, bundle_filename);
     }
 
     /// Internal function that adds a newly loaded resource into the indexes.
@@ -189,13 +171,13 @@ pub const Resources = struct {
                 r.bundle_offset orelse 0,
                 r.filename orelse "",
             });
-            r.destroy(self.arena_allocator);
+            r.destroy(self.arena.allocator());
             return;
         }
-        try self.by_uid.put(r.uid, r);
+        try self.by_uid.put(self.arena.allocator(), r.uid, r);
 
         if (filename != null) {
-            self.by_sentence.add(self.arena_allocator, filename.?, r) catch |e| {
+            self.by_sentence.add(self.arena.allocator(), filename.?, r) catch |e| {
                 err(
                     "error: invalid metadata in file {any} {s} {any}\n",
                     .{ r.uid, filename.?, e },
@@ -207,7 +189,7 @@ pub const Resources = struct {
         for (r.sentences.items) |sentence| {
             if (filename != null and std.mem.eql(u8, filename.?, sentence))
                 continue;
-            self.by_sentence.add(self.arena_allocator, sentence, r) catch |e| {
+            self.by_sentence.add(self.arena.allocator(), sentence, r) catch |e| {
                 err("invalid metadata in resource {f}. bundle_offset={d} filename={s} Error: {any}\n", .{
                     base62.writer(u64, r.uid),
                     r.bundle_offset orelse 0,
@@ -223,7 +205,7 @@ pub const Resources = struct {
         // in the UI.
         var buffer: [40:0]u8 = undefined;
         const uid_string = base62.encode(u64, r.uid, &buffer);
-        self.by_sentence.add(self.arena_allocator, uid_string, r) catch |e| {
+        self.by_sentence.add(self.arena.allocator(), uid_string, r) catch |e| {
             err("Error adding resource {f} uid sentence. bundle_offset={d} filename={s} Error: {any}\n", .{
                 base62.writer(u64, r.uid),
                 r.bundle_offset orelse 0,
@@ -233,7 +215,7 @@ pub const Resources = struct {
             return error.ReadMetadataFailed;
         };
 
-        var unique = UniqueWords.init(self.arena_allocator);
+        var unique = UniqueWords.init(self.arena.allocator());
         defer unique.deinit();
         unique.addArray(&r.sentences.items) catch |f| {
             err("invalid sentence content. Resource: {f} Error: {any}", .{ base62.writer(u64, r.uid), f });
@@ -242,7 +224,7 @@ pub const Resources = struct {
         var it = unique.words.iterator();
         while (it.next()) |word| {
             if (word.key_ptr.*.len > 0) {
-                self.by_word.add(self.arena_allocator, word.key_ptr.*, r) catch |f| {
+                self.by_word.add(self.arena.allocator(), word.key_ptr.*, r) catch |f| {
                     err("bundle contains invalid filename. {any}", .{f});
                     return error.ReadMetadataFailed;
                 };
@@ -256,6 +238,7 @@ pub const Resources = struct {
     /// file along with a table of contents.
     pub fn saveBundle(
         self: *Resources,
+        gpa: Allocator,
         io: std.Io,
         filename: []const u8,
         resources: std.AutoHashMapUnmanaged(u64, *const Resource),
@@ -276,7 +259,7 @@ pub const Resources = struct {
 
         // Step 1: Build the table of contents
         var header_items: ArrayListUnmanaged(BundleResource) = .empty;
-        defer header_items.deinit(self.parent_allocator);
+        defer header_items.deinit(gpa);
 
         var header_size: usize = 1 + 1 + 1 + 3; // Count the header size
         var file_index: usize = 0; // Count the file index position (after header)
@@ -322,12 +305,12 @@ pub const Resources = struct {
                     add_size = cache_size;
                 } else {
                     std.log.info("generating ogg for {s} wav. {s} normalised={any}", .{ name, uid, options.normalise_audio });
-                    const processed = generate_ogg_audio(self.parent_allocator, io, resource, self, options) catch |f| {
+                    const processed = generate_ogg_audio(gpa, io, resource, self, options) catch |f| {
                         err("generate_ogg_audio_failed. {any} Skipping {s}. {s}", .{ f, uid, resource.filename.? });
                         continue;
                     };
                     std.log.info("generated ogg for {s} size={Bi:.2}", .{ name, processed.len });
-                    defer self.parent_allocator.free(processed);
+                    defer gpa.free(processed);
                     try write_folder_file_bytes(io, cache_dir, name, processed);
                     add_size = processed.len;
                 }
@@ -340,7 +323,7 @@ pub const Resources = struct {
                     add_size = cache_size;
                 } else {
                     const processed = exportImage(
-                        self.parent_allocator,
+                        gpa,
                         io,
                         resource,
                         self,
@@ -351,7 +334,7 @@ pub const Resources = struct {
                         err("exportImage. {any}  {s}", .{ f, uid });
                         continue;
                     };
-                    defer self.parent_allocator.free(processed);
+                    defer gpa.free(processed);
                     debug("generated jpg {s} for {t} ({d} to {d} bytes)", .{ filename, resource.resource, add_size, processed.len });
                     try write_folder_file_bytes(io, cache_dir, name, processed);
                     add_size = processed.len;
@@ -375,7 +358,7 @@ pub const Resources = struct {
             var buffer: [40:0]u8 = undefined;
             const uid_string = base62.encode(u64, resource.uid, &buffer);
             var sentences: ArrayListUnmanaged([]const u8) = .empty;
-            defer sentences.deinit(self.parent_allocator);
+            defer sentences.deinit(gpa);
             for (resource.sentences.items, 0..) |sentence, count| {
                 if (std.mem.eql(u8, uid_string, sentence)) continue;
                 if (count > 254) {
@@ -388,7 +371,7 @@ pub const Resources = struct {
                     name = name[0..254];
                     err("Sentence was shortened to 255 characters. uid={s} type={t}", .{ uid, resource.resource });
                 }
-                try sentences.append(self.parent_allocator, name);
+                try sentences.append(gpa, name);
             }
 
             if (sentences.items.len == 0) {
@@ -396,8 +379,8 @@ pub const Resources = struct {
                 continue;
             }
 
-            const names = try sentences.toOwnedSlice(self.parent_allocator);
-            try header_items.append(self.parent_allocator, .{
+            const names = try sentences.toOwnedSlice(gpa);
+            try header_items.append(gpa, .{
                 .uid = resource.uid,
                 .type = add_type,
                 .size = @as(u32, @intCast(add_size)),
@@ -429,25 +412,25 @@ pub const Resources = struct {
 
         const version = 1;
         var header: ArrayListUnmanaged(u8) = .empty;
-        defer header.deinit(self.parent_allocator);
+        defer header.deinit(gpa);
         const b1 = @as(u8, @intCast(random.random(230) + 10));
-        try append_u8(&header, b1, self.parent_allocator);
-        try append_u8(&header, b1 + 9, self.parent_allocator);
-        try append_u8(&header, b1 + version, self.parent_allocator);
-        try append_u24(&header, @as(u24, @intCast(header_items.items.len)), self.parent_allocator);
+        try append_u8(&header, b1, gpa);
+        try append_u8(&header, b1 + 9, gpa);
+        try append_u8(&header, b1 + version, gpa);
+        try append_u24(&header, @as(u24, @intCast(header_items.items.len)), gpa);
 
         // Add the table of contents
         for (header_items.items) |item| {
-            try append_u8(&header, @as(u8, @intFromEnum(item.type)), self.parent_allocator);
-            try append_u64(&header, item.uid, self.parent_allocator);
-            try append_u32(&header, item.size, self.parent_allocator);
-            try append_u8(&header, @intCast(item.names.len), self.parent_allocator);
+            try append_u8(&header, @as(u8, @intFromEnum(item.type)), gpa);
+            try append_u64(&header, item.uid, gpa);
+            try append_u32(&header, item.size, gpa);
+            try append_u8(&header, @intCast(item.names.len), gpa);
             for (item.names) |sentence| {
-                try append_u8(&header, @as(u8, @intCast(sentence.len)), self.parent_allocator);
-                try header.appendSlice(self.parent_allocator, sentence);
+                try append_u8(&header, @as(u8, @intCast(sentence.len)), gpa);
+                try header.appendSlice(gpa, sentence);
             }
-            self.parent_allocator.free(item.names);
-            try append_u64(&header, header_size + item.file_index, self.parent_allocator);
+            gpa.free(item.names);
+            try append_u64(&header, header_size + item.file_index, gpa);
         }
 
         const output = std.Io.Dir.cwd().createFile(io, filename, .{ .truncate = true }) catch |e| {
@@ -464,11 +447,11 @@ pub const Resources = struct {
             var data: []const u8 = &.{};
             if (item.cached) {
                 const cache_name = try std.fmt.bufPrint(&buff2, "{s}.{s}", .{ uid, item.type.extension() });
-                data = try load_folder_file_bytes(self.parent_allocator, io, cache_dir, cache_name);
+                data = try load_folder_file_bytes(gpa, io, cache_dir, cache_name);
             } else {
-                data = try self.loadResource(self.parent_allocator, io, item.resource);
+                data = try self.loadResource(gpa, io, item.resource);
             }
-            defer self.parent_allocator.free(data);
+            defer gpa.free(data);
             if (data.len != item.size) {
                 err("Bundle index item size inconsistency: {d} != {d} (uid={s})", .{ data.len, item.size, uid });
                 return error.ReadMetadataFailed;
@@ -492,6 +475,7 @@ pub const Resources = struct {
     /// and loaded.
     pub fn loadDirectory(
         self: *Resources,
+        gpa: Allocator,
         io: std.Io,
         folder: []const u8,
         filter: ?*const fn (name: []const u8, type: FileType) bool,
@@ -512,10 +496,13 @@ pub const Resources = struct {
         if (self.used_resources == null)
             self.used_resources = .empty;
 
-        self.folder = try self.arena_allocator.dupeZ(u8, folder);
+        if (self.normalise == null)
+            self.normalise = try .init(self.arena.allocator());
+
+        self.folder = try self.arena.allocator().dupeZ(u8, folder);
 
         var filename: ArrayListUnmanaged(u8) = .empty;
-        defer filename.deinit(self.parent_allocator);
+        defer filename.deinit(gpa);
 
         var i = dir.iterate();
         while (i.next(io) catch return error.ReadRepoFileFailed) |file| {
@@ -539,8 +526,8 @@ pub const Resources = struct {
             //err("handled file {s} ({s} {s})", .{ file.name, file_info.name, @tagName(file_info.extension) });
 
             // Check the filename is nfc encoded
-            const file_nfc = try self.normalise.nfc(self.parent_allocator, file.name);
-            defer file_nfc.deinit(self.parent_allocator);
+            const file_nfc = try self.normalise.?.nfc(gpa, file.name);
+            defer file_nfc.deinit(gpa);
             if (file.name.len != file_nfc.slice.len) {
                 warn("Repo file '{s}' is not nfc ({d}:{d}). mv \"{s}\" \"{s}\"", .{
                     file.name,
@@ -552,18 +539,18 @@ pub const Resources = struct {
             }
 
             filename.clearRetainingCapacity();
-            try filename.appendSlice(self.parent_allocator, folder);
+            try filename.appendSlice(gpa, folder);
             if (filename.items[filename.items.len - 1] != '/') {
-                try filename.append(self.parent_allocator, '/');
+                try filename.append(gpa, '/');
             }
-            try filename.appendSlice(self.parent_allocator, file.name);
+            try filename.appendSlice(gpa, file.name);
 
-            var resource = try Resource.create(self.arena_allocator);
+            var resource = try Resource.create(self.arena.allocator());
             try resource.load(
-                self.parent_allocator,
-                self.arena_allocator,
+                gpa,
+                self.arena.allocator(),
                 io,
-                &self.normalise,
+                &self.normalise.?,
                 filename.items,
                 file_info.name,
                 file_info.extension,
@@ -574,7 +561,7 @@ pub const Resources = struct {
             }
 
             if (!resource.visible) {
-                resource.destroy(self.arena_allocator);
+                resource.destroy(self.arena.allocator());
                 continue;
             }
 
@@ -618,31 +605,31 @@ pub const Resources = struct {
     ///  requested keywords
     pub fn search(
         self: *Resources,
+        gpa: Allocator,
         keywords: []const []const u8,
         category: SearchCategory,
         results: *ArrayListUnmanaged(*Resource),
-        allocator: Allocator,
     ) !void {
         var seen: std.AutoHashMapUnmanaged(u64, *Resource) = .empty;
-        defer seen.deinit(allocator);
+        defer seen.deinit(gpa);
         for (keywords) |keyword| {
             const r = try self.by_word.lookup(keyword);
             if (r == null) continue;
             for (r.?.exact_accented.items) |x| {
                 if (category.matches(x.resource)) {
-                    var entry = try seen.getOrPut(allocator, x.uid);
+                    var entry = try seen.getOrPut(gpa, x.uid);
                     if (entry.found_existing) continue;
                     entry.value_ptr.* = x;
-                    try results.append(allocator, x);
+                    try results.append(gpa, x);
                 }
             }
             if (results.items.len == 0) {
                 for (r.?.exact_unaccented.items) |x| {
                     if (category.matches(x.resource)) {
-                        var entry = try seen.getOrPut(allocator, x.uid);
+                        var entry = try seen.getOrPut(gpa, x.uid);
                         if (entry.found_existing) continue;
                         entry.value_ptr.* = x;
-                        try results.append(allocator, x);
+                        try results.append(gpa, x);
                     }
                 }
             }
@@ -656,17 +643,20 @@ pub const Resources = struct {
     /// filename, use `search()` for single word keyword search.
     pub fn lookup(
         self: *Resources,
+        gpa: Allocator,
         sentence: []const u8,
         category: SearchCategory,
         match: Match,
         results: *ArrayListUnmanaged(*Resource),
-        allocator: Allocator,
     ) (error{OutOfMemory} || Error)!void {
         if (sentence.len == 0) return;
 
+        if (self.normalise == null)
+            self.normalise = try .init(self.arena.allocator());
+
         // Normalise to nfc and normalise the characters with index rules.
-        const sentence_nfc = try self.normalise.nfc(self.parent_allocator, sentence);
-        defer sentence_nfc.deinit(self.parent_allocator);
+        const sentence_nfc = try self.normalise.?.nfc(gpa, sentence);
+        defer sentence_nfc.deinit(gpa);
 
         if (sentence.len != sentence_nfc.slice.len) {
             warn("lookup expects nfc encoding.", .{});
@@ -696,14 +686,14 @@ pub const Resources = struct {
         if (search_results) |r| {
             for (r.exact_accented.items) |x| {
                 if (category.matches(x.resource))
-                    try append_if_not_found(results, allocator, x);
+                    try append_if_not_found(results, gpa, x);
             }
         }
 
         if (trimmed_results) |tr| {
             for (tr.exact_accented.items) |x| {
                 if (category.matches(x.resource))
-                    try append_if_not_found(results, allocator, x);
+                    try append_if_not_found(results, gpa, x);
             }
         }
 
@@ -711,14 +701,14 @@ pub const Resources = struct {
             if (try self.by_sentence.lookup(info.unaccented)) |r| {
                 for (r.exact_unaccented.items) |x| {
                     if (category.matches(x.resource))
-                        try append_if_not_found(results, allocator, x);
+                        try append_if_not_found(results, gpa, x);
                 }
             }
 
             if (trimmed_results) |tr| {
                 for (tr.exact_unaccented.items) |x| {
                     if (category.matches(x.resource))
-                        try append_if_not_found(results, allocator, x);
+                        try append_if_not_found(results, gpa, x);
                 }
             }
         }
@@ -727,7 +717,7 @@ pub const Resources = struct {
             if (search_results) |r| {
                 for (r.partial_match.items) |x| {
                     if (category.matches(x.resource))
-                        try append_if_not_found(results, allocator, x);
+                        try append_if_not_found(results, gpa, x);
                 }
                 if (results.items.len > 0)
                     return;
@@ -736,7 +726,7 @@ pub const Resources = struct {
             if (trimmed_results) |tr| {
                 for (tr.partial_match.items) |x| {
                     if (category.matches(x.resource))
-                        try append_if_not_found(results, allocator, x);
+                        try append_if_not_found(results, gpa, x);
                 }
                 if (results.items.len > 0)
                     return;
@@ -748,9 +738,9 @@ pub const Resources = struct {
     /// exactly matches. Undecided if this should be case-insensitive.
     pub fn lookupOne(
         self: *Resources,
+        gpa: Allocator,
         sentence: []const u8,
         category: SearchCategory,
-        allocator: Allocator,
     ) (error{OutOfMemory} || Error)!?*Resource {
         if (sentence.len == 0) {
             debug("lookupOne() called with empty sentence.", .{});
@@ -758,9 +748,9 @@ pub const Resources = struct {
         }
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
-        defer results.deinit(allocator);
+        defer results.deinit(gpa);
 
-        try self.lookup(sentence, category, .exact, &results, allocator);
+        try self.lookup(gpa, sentence, category, .exact, &results);
         if (results.items.len == 0) {
             debug("lookupOne() name='{s}' found no results.", .{
                 sentence,
@@ -777,19 +767,19 @@ pub const Resources = struct {
     /// resource bundle.
     pub fn loadResource(
         self: *Resources,
-        allocator: Allocator,
+        gpa: Allocator,
         io: std.Io,
         resource: *const Resource,
     ) (Resources.Error || Allocator.Error || std.Io.File.OpenError || std.Io.File.StatError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.LimitedAllocError)![]const u8 {
         if (self.used_resources) |*manifest| {
-            try manifest.put(self.arena_allocator, resource.uid, resource);
+            try manifest.put(self.arena.allocator(), resource.uid, resource);
         }
 
         // If a file was loaded using `loadDirectory` the resources
         // has a filename to use to load the file data.
         if (resource.filename) |filename| {
             // Resource has a filename, read a file.
-            return try load_file_bytes(allocator, io, filename);
+            return try load_file_bytes(gpa, io, filename);
         }
 
         // If the file was found in a resource bundle, a byte offset
@@ -797,7 +787,7 @@ pub const Resources = struct {
         if (resource.bundle_offset) |bundle_offset| {
             // Resource has an offset pointer into a bundle, read the bundle.
             return try load_file_byte_slice(
-                allocator,
+                gpa,
                 io,
                 self.bundle_file,
                 bundle_offset,
@@ -972,13 +962,13 @@ fn read_extension(path: []const u8) []const u8 {
 
 inline fn append_if_not_found(
     results: *ArrayListUnmanaged(*Resource),
-    allocator: Allocator,
+    gpa: Allocator,
     resource: *Resource,
 ) error{OutOfMemory}!void {
     for (results.items) |item| {
         if (item.uid == resource.uid) return;
     }
-    try results.append(allocator, resource);
+    try results.append(gpa, resource);
 }
 
 /// Describes a table of contents entry in a bundle file.
@@ -998,19 +988,6 @@ fn ignore_file(text: []const u8) bool {
     return false;
 }
 
-test "nfc_normalisation" {
-    const allocator = std.testing.allocator;
-
-    var resources = try Resources.create(allocator);
-    defer resources.destroy();
-
-    const data = "ὁ μικρὸς οἶκος";
-    const data_nfc = try resources.normalise.nfc(allocator, data);
-    defer data_nfc.deinit(allocator);
-
-    try expectEqualStrings(data, data_nfc.slice);
-}
-
 test "read_extension" {
     try expectEqualStrings("jpg", read_extension("fish.jpg"));
     try expectEqualStrings("js", read_extension("fish.js"));
@@ -1020,8 +997,11 @@ test "read_extension" {
 }
 
 test "resource init" {
-    var resources = try Resources.create(std.testing.allocator);
-    defer resources.destroy();
+    const gpa = std.testing.allocator;
+
+    var resources: Resources = try .init(gpa);
+    defer resources.deinit(gpa);
+
     try expectEqual(0, resources.by_uid.count());
     try expectEqual(0, resources.bundle_file.len);
 }
@@ -1029,14 +1009,19 @@ test "resource init" {
 test "load_resource image" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
-    var resources = try Resources.create(gpa);
-    defer resources.destroy();
+
+    var resources: Resources = try .init(gpa);
+    defer resources.deinit(gpa);
+
+    // normalise initialisation was skipped because this
+    // test doesn't use loadDirectory.
+    resources.normalise = try .init(resources.arena.allocator());
 
     const file = "./test/repo/GzeBWE.png";
     const info = Resources.FilenameComponents.split(file);
     var resource: Resource = .empty;
-    try resource.load(std.testing.allocator, std.testing.allocator, io, &resources.normalise, file, info.name, info.extension);
-    defer resource.deinit(std.testing.allocator);
+    try resource.load(gpa, gpa, io, &resources.normalise.?, file, info.name, info.extension);
+    defer resource.deinit(gpa);
 
     try expectEqual(3989967536, resource.uid);
     try expectEqualStrings(file, resource.filename.?);
@@ -1052,8 +1037,13 @@ test "load_resource image" {
 test "load_resource audio" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
-    var resources = try Resources.create(gpa);
-    defer resources.destroy();
+
+    var resources: Resources = try .init(gpa);
+    defer resources.deinit(gpa);
+
+    // normalise initialisation was skipped because this
+    // test doesn't use loadDirectory.
+    resources.normalise = try .init(resources.arena.allocator());
 
     const file = "./test/repo/jay~ἄρτος.wav";
     const info = Resources.FilenameComponents.split(file);
@@ -1061,7 +1051,7 @@ test "load_resource audio" {
     try expectEqual(.wav, info.extension);
 
     var resource: Resource = .empty;
-    try resource.load(std.testing.allocator, std.testing.allocator, io, &resources.normalise, file, info.name, info.extension);
+    try resource.load(gpa, gpa, io, &resources.normalise.?, file, info.name, info.extension);
     defer resource.deinit(std.testing.allocator);
 
     //try expect(0 != resource.uid);
@@ -1075,6 +1065,11 @@ test "load_resource audio" {
 test "search resources" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
+
+    var resources: Resources = try .init(gpa);
+    defer resources.deinit(gpa);
+    _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
+
     var keywords: std.ArrayListUnmanaged([]const u8) = .empty;
     defer keywords.deinit(gpa);
     try keywords.append(gpa, "ἄγγελος");
@@ -1082,18 +1077,13 @@ test "search resources" {
     var results: std.ArrayListUnmanaged(*Resource) = .empty;
     defer results.deinit(gpa);
 
-    var resources = try Resources.create(gpa);
-    defer resources.destroy();
-
-    _ = try resources.loadDirectory(io, "./test/repo/", null);
-
     //var i = resources.by_sentence.index.keyIterator();
     //while (i.next()) |key| {
     //    err("by_sentence key = {s}", .{key.*});
     //}
 
     results.clearRetainingCapacity();
-    try resources.search(keywords.items, .any, &results, gpa);
+    try resources.search(gpa, keywords.items, .any, &results);
     try expectEqual(0, results.items.len);
 
     // Test files have this exact string
@@ -1109,72 +1099,72 @@ test "search resources" {
     try expect(resources.by_sentence.index.get("ὁ Δαυίδ λέγει·") == null);
 
     results.clearRetainingCapacity();
-    try resources.lookup("fewhfoihsd4565", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "fewhfoihsd4565", .any, .partial, &results);
     try expectEqual(0, results.items.len);
-    try resources.lookup("GzeBWE", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "GzeBWE", .any, .partial, &results);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("κρέα", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "κρέα", .any, .partial, &results);
     try expectEqual(2, results.items.len);
     results.clearRetainingCapacity();
 
     // A wav file and an image file match this
-    try resources.lookup("μάχαιρα", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "μάχαιρα", .any, .partial, &results);
     try expectEqual(2, results.items.len);
     results.clearRetainingCapacity();
 
-    try resources.lookup("μάχαιρα.", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "μάχαιρα.", .any, .partial, &results);
     try expectEqual(2, results.items.len);
     results.clearRetainingCapacity();
 
-    try resources.lookup("ὁ δαυὶδ λέγει", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "ὁ δαυὶδ λέγει", .any, .partial, &results);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("ὁ Δαυὶδ λέγει", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "ὁ Δαυὶδ λέγει", .any, .partial, &results);
     try expectEqual(1, results.items.len);
     results.clearRetainingCapacity();
-    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "ὁ Δαυὶδ λέγει·", .any, .partial, &results);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ὁ Δαυὶδ λέγει·", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "ὁ Δαυὶδ λέγει·", .any, .partial, &results);
     try expectEqual(1, results.items.len);
 
     // Not the start of a sentence
     results.clearRetainingCapacity();
-    try resources.lookup("Δαυὶδ", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "Δαυὶδ", .any, .partial, &results);
     try expectEqual(0, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("πτωχός", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "πτωχός", .any, .partial, &results);
     try expectEqual(2, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("πτωχός.", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "πτωχός.", .any, .partial, &results);
     try expectEqual(2, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος", .audio, .partial, &results, gpa);
+    try resources.lookup(gpa, "ἄρτος", .audio, .partial, &results);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος.", .audio, .partial, &results, gpa);
+    try resources.lookup(gpa, "ἄρτος.", .audio, .partial, &results);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος;", .audio, .partial, &results, gpa);
+    try resources.lookup(gpa, "ἄρτος;", .audio, .partial, &results);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("ἄρτος", .image, .partial, &results, gpa);
+    try resources.lookup(gpa, "ἄρτος", .image, .partial, &results);
     try expectEqual(0, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("γυναῖκας· βλέψατε!", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "γυναῖκας· βλέψατε!", .any, .partial, &results);
     try expectEqual(1, results.items.len);
 
     results.clearRetainingCapacity();
-    try resources.lookup("γυναῖκας· βλέψατε", .any, .partial, &results, gpa);
+    try resources.lookup(gpa, "γυναῖκας· βλέψατε", .any, .partial, &results);
     try expectEqual(1, results.items.len);
 }
 
@@ -1182,21 +1172,20 @@ test "ignore_not_visible" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
+    var resources: Resources = try .init(gpa);
+    defer resources.deinit(gpa);
+    _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
+
     var results: std.ArrayListUnmanaged(*Resource) = .empty;
     defer results.deinit(gpa);
 
-    var resources = try Resources.create(gpa);
-    defer resources.destroy();
-
-    _ = try resources.loadDirectory(io, "./test/repo/", null);
-
     {
         // The bean file must be ignored
-        try resources.search(&.{"ὄσπρια"}, .any, &results, gpa);
+        try resources.search(gpa, &.{"ὄσπρια"}, .any, &results);
         try expectEqual(0, results.items.len);
         // The bean file must not be in the set of δύο
         results.clearRetainingCapacity();
-        try resources.search(&.{"δύο"}, .any, &results, gpa);
+        try resources.search(gpa, &.{"δύο"}, .any, &results);
         try expectEqual(1, results.items.len);
     }
 }
@@ -1208,27 +1197,26 @@ test "font_lookup" {
     var results: std.ArrayListUnmanaged(*Resource) = .empty;
     defer results.deinit(gpa);
 
-    var resources = try Resources.create(gpa);
-    defer resources.destroy();
-
-    _ = try resources.loadDirectory(io, "./test/repo/", null);
+    var resources: Resources = try .init(gpa);
+    defer resources.deinit(gpa);
+    _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
     {
         // Basic search
-        try resources.search(&.{"fakefont"}, .any, &results, gpa);
+        try resources.search(gpa, &.{"fakefont"}, .any, &results);
         try expectEqual(1, results.items.len);
         // Basic lookup
         results.clearRetainingCapacity();
-        try resources.lookup("fakefont", .any, .exact, &results, gpa);
+        try resources.lookup(gpa, "fakefont", .any, .exact, &results);
         try expectEqual(1, results.items.len);
         // Filtered lookup
-        var font = try resources.lookupOne("fakefont", .any, gpa);
+        var font = try resources.lookupOne(gpa, "fakefont", .any);
         try expect(font != null);
         // Filtered lookup
-        font = try resources.lookupOne("fakefont", .font, gpa);
+        font = try resources.lookupOne(gpa, "fakefont", .font);
         try expect(font != null);
         // Filtered lookup
-        font = try resources.lookupOne("fakefont", .ttf, gpa);
+        font = try resources.lookupOne(gpa, "fakefont", .ttf);
         try expect(font != null);
     }
 }
@@ -1237,22 +1225,21 @@ test "file_with_full_stop" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
+    var resources: Resources = try .init(gpa);
+    defer resources.deinit(gpa);
+    _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
+
     var results: std.ArrayListUnmanaged(*Resource) = .empty;
     defer results.deinit(gpa);
 
-    var resources = try Resources.create(gpa);
-    defer resources.destroy();
-
-    _ = try resources.loadDirectory(io, "./test/repo/", null);
-
     {
-        try resources.search(&.{"ἐστιν"}, .any, &results, gpa);
+        try resources.search(gpa, &.{"ἐστιν"}, .any, &results);
         try expectEqual(1, results.items.len);
         results.clearRetainingCapacity();
-        try resources.search(&.{"ἦν"}, .any, &results, gpa);
+        try resources.search(gpa, &.{"ἦν"}, .any, &results);
         try expectEqual(1, results.items.len);
         results.clearRetainingCapacity();
-        try resources.search(&.{ "ἐστιν", "ἦν" }, .any, &results, gpa);
+        try resources.search(gpa, &.{ "ἐστιν", "ἦν" }, .any, &results);
         try expectEqual(1, results.items.len);
     }
 
@@ -1289,45 +1276,45 @@ test "bundle" {
     var data2b: []const u8 = "";
 
     {
-        var resources = try Resources.create(gpa);
-        defer resources.destroy();
-        _ = try resources.loadDirectory(io, "./test/repo/", null);
+        var resources: Resources = try .init(gpa);
+        defer resources.deinit(gpa);
+        _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
         try expectEqual(397, resources.by_sentence.index.count());
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
 
-        try resources.lookup("ὁ μικρὸς οἶκος", .any, .exact, &results, gpa);
+        try resources.lookup(gpa, "ὁ μικρὸς οἶκος", .any, .exact, &results);
         try expectEqual(1, results.items.len);
         try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
         results.clearRetainingCapacity();
 
-        try resources.lookup("ὁ μικρὸς οἶκος", .png, .exact, &results, gpa);
+        try resources.lookup(gpa, "ὁ μικρὸς οἶκος", .png, .exact, &results);
         try expectEqual(1, results.items.len);
         try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
         results.clearRetainingCapacity();
 
-        try resources.lookup("ὁ μικρὸς οἶκος", .image, .exact, &results, gpa);
+        try resources.lookup(gpa, "ὁ μικρὸς οἶκος", .image, .exact, &results);
         try expectEqual(1, results.items.len);
         try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
         results.clearRetainingCapacity();
 
-        try resources.lookup("ὁ μικρὸς οἶκος", .wav, .exact, &results, gpa);
+        try resources.lookup(gpa, "ὁ μικρὸς οἶκος", .wav, .exact, &results);
         try expectEqual(0, results.items.len);
         results.clearRetainingCapacity();
 
-        try resources.lookup("μικρὸς οἶκος", .any, .exact, &results, gpa);
+        try resources.lookup(gpa, "μικρὸς οἶκος", .any, .exact, &results);
         try expectEqual(1, results.items.len);
         try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
         results.clearRetainingCapacity();
 
-        try resources.lookup("myxml1", .any, .partial, &results, gpa);
+        try resources.lookup(gpa, "myxml1", .any, .partial, &results);
         try expectEqual(1, results.items.len);
         try expectEqualStrings("myxml1", results.items[0].sentences.items[0]);
         try expectEqualStrings("my xml 1", results.items[0].sentences.items[1]);
 
-        try resources.lookup("myxml2", .any, .partial, &results, gpa);
+        try resources.lookup(gpa, "myxml2", .any, .partial, &results);
         try expectEqual(2, results.items.len);
         try expectEqualStrings("myxml2", results.items[1].sentences.items[0]);
         try expectEqualStrings("abcd", results.items[1].sentences.items[1]);
@@ -1337,6 +1324,7 @@ test "bundle" {
         try expectEqual(2, resources.used_resources.?.count());
 
         try resources.saveBundle(
+            gpa,
             io,
             TEST_BUNDLE_FILENAME,
             resources.used_resources.?,
@@ -1344,24 +1332,25 @@ test "bundle" {
             "/tmp/",
         );
     }
-    defer std.testing.allocator.free(data1);
-    defer std.testing.allocator.free(data2);
+
+    defer gpa.free(data1);
+    defer gpa.free(data2);
 
     {
-        var resources = try Resources.create(std.testing.allocator);
+        var resources: Resources = try .init(gpa);
+        defer resources.deinit(gpa);
         resources.used_resources = .empty;
-        defer resources.destroy();
         try resources.loadBundle(io, TEST_BUNDLE_FILENAME);
 
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(gpa);
 
-        try resources.lookup("1122", .any, .partial, &results, gpa);
+        try resources.lookup(gpa, "1122", .any, .partial, &results);
         try expectEqual(1, results.items.len);
-        try resources.lookup("2233", .any, .partial, &results, gpa);
+        try resources.lookup(gpa, "2233", .any, .partial, &results);
         try expectEqual(2, results.items.len);
         // abcd is already in the results list, so no new results should be added.
-        try resources.lookup("abcd", .any, .partial, &results, gpa);
+        try resources.lookup(gpa, "abcd", .any, .partial, &results);
         try expectEqual(2, results.items.len);
 
         try expectEqualStrings("myxml1", results.items[0].sentences.items[0]);
@@ -1372,10 +1361,10 @@ test "bundle" {
         try expectEqual(2, resources.used_resources.?.count());
 
         results.clearRetainingCapacity();
-        try resources.lookup("1122.", .any, .partial, &results, gpa);
+        try resources.lookup(gpa, "1122.", .any, .partial, &results);
         try expectEqual(1, results.items.len);
         results.clearRetainingCapacity();
-        try resources.lookup("1122·", .any, .partial, &results, gpa);
+        try resources.lookup(gpa, "1122·", .any, .partial, &results);
         try expectEqual(1, results.items.len);
     }
     defer gpa.free(data1b);
@@ -1387,6 +1376,11 @@ test "bundle" {
 
 const builtin = @import("builtin");
 const std = @import("std");
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
+const expectEqualDeep = std.testing.expectEqualDeep;
+const expectEqualStrings = std.testing.expectEqualStrings;
+
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const log = std.log;
 const warn = std.log.warn;
@@ -1414,7 +1408,6 @@ const Parser = @import("praxis").Parser;
 const BoundedArray = @import("praxis").BoundedArray;
 const SearchIndex = @import("praxis").SearchIndex;
 const Normaliser = @import("praxis").normaliser.Normaliser;
-const max_word_size = @import("praxis").max_word_size;
 
 const generate_ogg_audio = @import("export_audio.zig").generate_ogg_audio;
 const Size = @import("export_image.zig").Size;
@@ -1429,8 +1422,3 @@ const append_u32 = BinaryWriter.append_u32;
 const append_u24 = BinaryWriter.append_u24;
 const append_u16 = BinaryWriter.append_u16;
 const append_u8 = BinaryWriter.append_u8;
-
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-const expectEqualDeep = std.testing.expectEqualDeep;
-const expectEqualStrings = std.testing.expectEqualStrings;
