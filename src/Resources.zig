@@ -269,7 +269,7 @@ pub fn saveBundle(
 
     var iterator = resources.valueIterator();
     while (iterator.next()) |r| {
-        var resource: *const Resource = r.*;
+        const resource: *const Resource = r.*;
         const uid = base62.encode(u64, resource.uid, &buff);
 
         if (header_contains(header_items.items, resource.uid)) {
@@ -618,7 +618,7 @@ pub fn search(
         if (r == null) continue;
         for (r.?.exact_accented.items) |x| {
             if (category.matches(x.resource)) {
-                var entry = try seen.getOrPut(gpa, x.uid);
+                const entry = try seen.getOrPut(gpa, x.uid);
                 if (entry.found_existing) continue;
                 entry.value_ptr.* = x;
                 try results.append(gpa, x);
@@ -627,7 +627,7 @@ pub fn search(
         if (results.items.len == 0) {
             for (r.?.exact_unaccented.items) |x| {
                 if (category.matches(x.resource)) {
-                    var entry = try seen.getOrPut(gpa, x.uid);
+                    const entry = try seen.getOrPut(gpa, x.uid);
                     if (entry.found_existing) continue;
                     entry.value_ptr.* = x;
                     try results.append(gpa, x);
