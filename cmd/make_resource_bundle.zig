@@ -16,7 +16,7 @@ pub fn make_resource_bundle(
     }
 
     info("Start saving bundle {s} with cache {s}.", .{ bundle_name, config.repo_cache });
-    try resources.saveBundle(io, bundle_name, manifest, options, config.repo_cache);
+    try resources.saveBundle(gpa, io, bundle_name, manifest, options, config.repo_cache);
     info("Saved bundle {s} with cache {s}.", .{ bundle_name, config.repo_cache });
 }
 

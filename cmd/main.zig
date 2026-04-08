@@ -92,11 +92,10 @@ pub fn main(init: std.process.Init) !void {
         var match: Resources.Match = .unaccented;
         var keyword: ?[]const u8 = null;
 
-        // Load resource folder
-        var resources = try Resources.create(init.arena.allocator());
-        defer resources.destroy();
+        var resources = try Resources.init(init.arena.allocator());
+        defer resources.deinit(init.arena.allocator());
 
-        try load_resource_set(io, resources, &config);
+        try load_resource_set(init.gpa, io, &resources, &config);
 
         if (args.next()) |arg| {
             if (std.ascii.eqlIgnoreCase("exact", arg))
@@ -108,7 +107,7 @@ pub fn main(init: std.process.Init) !void {
             else
                 keyword = arg;
         } else {
-            resdump(resources);
+            try resdump(init.io, &resources);
             return;
         }
 
@@ -117,41 +116,21 @@ pub fn main(init: std.process.Init) !void {
                 keyword = arg;
             }
             if (keyword == null) {
-                resdump(resources);
+                try resdump(init.io, &resources);
                 //std.log.err("specify search keyword.", .{});
                 return;
             }
         }
 
-        var size: usize = 0;
         var results: ArrayListUnmanaged(*Resource) = .empty;
         defer results.deinit(init.gpa);
-        resources.lookup(keyword.?, file_type_filter, match, &results, init.gpa) catch |e| {
+        resources.lookup(init.gpa, keyword.?, file_type_filter, match, &results) catch |e| {
             err("Lookup resources from {s} failed. {any}", .{ config.repo, e });
             return Resources.Error.FailedReadingRepo;
         };
-        for (results.items) |result| {
-            var first = true;
-            for (result.sentences.items) |sentence| {
-                var buffer: [40:0]u8 = undefined;
-                const uid = base62.encode(u64, result.uid, &buffer);
-                if (std.mem.eql(u8, sentence, uid)) continue;
-                if (first)
-                    std.debug.print("{s: >12} {t: <4} ", .{ uid, result.resource })
-                else
-                    std.debug.print("                  ", .{});
-                first = false;
-                size += result.size;
-                std.debug.print("{s}\n", .{sentence});
-            }
-        }
-        std.debug.print("found {d} ", .{results.items.len});
-        if (file_type_filter != .any)
-            std.debug.print("{t} ", .{file_type_filter});
-        std.debug.print("resources ({t}).", .{match});
-        if (size > 0)
-            std.debug.print(" size {Bi:.1}.", .{size});
-        std.debug.print("\n\n", .{});
+
+        try show_search_results(io, results.items, match);
+
         return;
     }
 
@@ -172,11 +151,10 @@ pub fn main(init: std.process.Init) !void {
             return;
         }
 
-        // Load resource folder
-        var resources = try Resources.create(init.arena.allocator());
-        defer resources.destroy();
+        var resources = try Resources.init(init.arena.allocator());
+        defer resources.deinit(init.arena.allocator());
 
-        try load_resource_set(io, resources, &config);
+        try load_resource_set(init.gpa, io, &resources, &config);
 
         const options: SaveOptions = .{
             .image = .jpg,
@@ -185,7 +163,7 @@ pub fn main(init: std.process.Init) !void {
             .normalise_audio = true,
         };
 
-        make_resource_bundle(init.gpa, io, resources, &options, &config, bundle_name.?) catch |e| {
+        make_resource_bundle(init.gpa, io, &resources, &options, &config, bundle_name.?) catch |e| {
             print("Error making resource bundle. {any}\n", .{e});
         };
         return;
@@ -195,7 +173,12 @@ pub fn main(init: std.process.Init) !void {
     print("usage: resources [-b directory] [-t any] add|search|bundle|help\n\n", .{});
 }
 
-pub fn resdump(resources: *Resources) void {
+pub fn resdump(io: std.Io, resources: *Resources) std.Io.Writer.Error!void {
+    var write: [1024]u8 = undefined;
+    var out: std.Io.File.Writer = .init(.stdout(), io, &write);
+    defer out.flush() catch {};
+    var stdout = &out.interface;
+
     var count: usize = 0;
     var size: usize = 0;
     var i = resources.by_uid.valueIterator();
@@ -207,7 +190,7 @@ pub fn resdump(resources: *Resources) void {
             resource.*.sentences.items[0]
         else
             "";
-        std.debug.print("{f: >13} {s: >12} {d:8} {t:5}  {s}\n", .{
+        try stdout.print("{f: >13} {s: >12} {d:8} {t:5}  {s}\n", .{
             base62.writer(u64, resource.*.uid),
             resource.*.date orelse "",
             resource.*.size,
@@ -216,25 +199,62 @@ pub fn resdump(resources: *Resources) void {
         });
         count += 1;
     }
-    std.debug.print("found {d} resource(s).", .{count});
+    try stdout.print("found {d} resource(s).", .{count});
     if (size > 0)
-        std.debug.print(" size {Bi:.1}.", .{size});
-    std.debug.print("\n\n", .{});
+        try stdout.print(" size {Bi:.1}.", .{size});
+    try stdout.print("\n\n", .{});
 }
 
-pub fn load_resource_set(io: std.Io, resources: *Resources, config: *const Config) Resources.Error!void {
+pub fn show_search_results(
+    io: std.Io,
+    results: []*Resource,
+    match: ?Resources.Match,
+) std.Io.Writer.Error!void {
+    var size: usize = 0;
+
+    var write: [1024]u8 = undefined;
+    var out: std.Io.File.Writer = .init(.stdout(), io, &write);
+    defer out.flush() catch {};
+    var stdout = &out.interface;
+
+    for (results) |result| {
+        var first = true;
+        for (result.sentences.items) |sentence| {
+            var buffer: [40:0]u8 = undefined;
+            const uid = base62.encode(u64, result.uid, &buffer);
+            if (std.mem.eql(u8, sentence, uid)) continue;
+            if (first)
+                try stdout.print("{s: >12} {t: <4} ", .{ uid, result.resource })
+            else
+                try stdout.print("                  ", .{});
+            first = false;
+            size += result.size;
+            try stdout.print("{s}\n", .{sentence});
+        }
+    }
+    try stdout.print("found {d} ", .{results.len});
+    if (file_type_filter != .any)
+        try stdout.print("{t} ", .{file_type_filter});
+    if (match != null)
+        try stdout.print("resources ({t}).", .{match.?});
+    if (size > 0)
+        try stdout.print(" size {Bi:.1}.", .{size});
+    try stdout.print("\n\n", .{});
+}
+
+pub fn load_resource_set(gpa: Allocator, io: std.Io, resources: *Resources, config: *const Config) Resources.Error!void {
     if (source_bundle != null) {
         _ = resources.loadBundle(io, source_bundle.?) catch |e| {
             err("Read resources from bundle {s} failed. {any}", .{ source_bundle.?, e });
             return Resources.Error.FailedReadingRepo;
         };
     } else if (source_dir != null) {
-        _ = resources.loadDirectory(io, source_dir.?, null) catch |e| {
+        _ = resources.loadDirectory(gpa, io, source_dir.?, null) catch |e| {
             err("Read resources from {s} failed. {any}", .{ source_dir.?, e });
             return Resources.Error.FailedReadingRepo;
         };
     } else {
-        _ = resources.loadDirectory(io, config.repo, null) catch |e| {
+        _ = resources.loadDirectory(gpa, io, config.repo, null) catch |e| {
             err("Read resources from {s} failed. {any}", .{ config.repo, e });
             return Resources.Error.FailedReadingRepo;
         };
@@ -345,7 +365,7 @@ pub fn generate_uid_metadata(
         };
     }
 
-    var file_info = Resources.FilenameComponents.split(source_filename);
+    const file_info = Resources.FilenameComponents.split(source_filename);
 
     const target_filename = try std.fmt.allocPrint(allocator, "{s}.{t}", .{ uid, file_info.extension });
     defer allocator.free(target_filename);

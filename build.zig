@@ -19,10 +19,12 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "praxis", .module = praxis_module },
+            .{ .name = "zstbi", .module = zstbi_module },
+            .{ .name = "Normalize", .module = zg.module("Normalize") },
+        },
     });
-    lib_mod.addImport("praxis", praxis_module);
-    lib_mod.addImport("zstbi", zstbi_module);
-    lib_mod.addImport("Normalize", zg.module("Normalize"));
 
     const lib = b.addLibrary(.{
         .linkage = .static,
@@ -37,12 +39,14 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/test.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "praxis", .module = praxis_module },
+                .{ .name = "zstbi", .module = zstbi_module },
+                .{ .name = "Normalize", .module = zg.module("Normalize") },
+            },
         }),
         .filters = test_filters,
     });
-    tests.root_module.addImport("praxis", praxis_module);
-    tests.root_module.addImport("zstbi", zstbi_module);
-    tests.root_module.addImport("Normalize", zg.module("Normalize"));
 
     const test_folder = b.path("./test/");
     const opts = b.addOptions();

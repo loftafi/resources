@@ -372,6 +372,7 @@ pub fn saveBundle(
                 name = name[0..254];
                 err("Sentence was shortened to 255 characters. uid={s} type={t}", .{ uid, resource.resource });
             }
+
             try sentences.append(gpa, name);
         }
 
@@ -512,7 +513,14 @@ pub fn loadDirectory(
         const file_info = FilenameComponents.split(file.name);
 
         if (filter) |f| {
-            if (f(file_info.name, file_info.extension)) continue;
+            if (f(file_info.name, file_info.extension)) {
+                //err("skipping filtered file {s} ({s} {s})", .{
+                //    file.name,
+                //    file_info.name,
+                //    @tagName(file_info.extension),
+                //});
+                continue;
+            }
         }
 
         if (file_info.extension == .unknown) {
