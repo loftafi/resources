@@ -224,9 +224,9 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
 const Resources = @import("Resources.zig");
-const Resource = @import("resource.zig").Resource;
+const Resource = @import("Resource.zig");
 const SaveOptions = Resources.SaveOptions;
 const base62 = @import("base62.zig");
-const write_folder_file_bytes = @import("resource.zig").write_folder_file_bytes;
+const write_folder_file_bytes = Resource.write_folder_file_bytes;
 
 const wav = @import("wav.zig");

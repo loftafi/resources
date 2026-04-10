@@ -472,11 +472,11 @@ const debug = std.log.debug;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-const Resource = @import("resource.zig").Resource;
 const Resources = @import("Resources.zig");
+const Resource = @import("Resource.zig");
 const Type = @import("root.zig").Type;
 
 const zstbi = @import("zstbi");
 const Image = zstbi.Image;
 
-const write_folder_file_bytes = @import("resource.zig").write_folder_file_bytes;
+const write_folder_file_bytes = Resource.write_folder_file_bytes;

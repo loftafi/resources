@@ -5,215 +5,219 @@ pub const max_filename_length = 1024 * 2;
 
 /// Describes a resource. This inforation may be loaded from a
 /// directory of files or a bundle of files (archive).
-pub const Resource = struct {
-    uid: u64,
-    visible: bool,
-    date: ?[]const u8,
-    copyright: ?[]const u8,
-    link: ?[]const u8,
-    sentences: ArrayListUnmanaged([]const u8),
+pub const Resource = @This();
 
-    resource: Type,
+uid: u64,
+visible: bool,
+date: ?[]const u8,
+copyright: ?[]const u8,
+link: ?[]const u8,
+sentences: ArrayListUnmanaged([]const u8),
 
-    // on disk resource has a filename
-    filename: ?[:0]u8 = null,
+resource: Type,
 
-    // bundle resources has a bundle offset
-    bundle_offset: ?u64 = null,
-    size: usize = 0,
+// Name of actual file, or bundle filename containing the file.
+filename: ?[:0]u8 = null,
 
-    pub const empty: Resource = .{
-        .uid = 0,
-        .visible = true,
-        .resource = .unknown,
-        .date = null,
-        .copyright = null,
-        .link = null,
-        .sentences = .empty,
-        .filename = null,
-        .bundle_offset = null,
-        .size = 0,
-    };
+// bundle resources has a bundle offset
+bundle_offset: ?u64 = null,
 
-    /// Create a `Resource` initialised with the `.empty` placeholder settings.
-    pub fn create(allocator: Allocator) Allocator.Error!*Resource {
-        const resource = try allocator.create(Resource);
-        errdefer allocator.destroy(resource);
-        resource.* = .empty;
-        return resource;
-    }
+size: usize = 0,
 
-    /// `deinit` and `destroy` a `create`d resource object.
-    pub fn destroy(self: *Resource, allocator: Allocator) void {
-        self.deinit(allocator);
-        allocator.destroy(self);
-    }
-
-    /// Free any memory allocated by this object.
-    pub fn deinit(self: *Resource, allocator: Allocator) void {
-        for (self.sentences.items) |s| {
-            allocator.free(s);
-        }
-        self.sentences.deinit(allocator);
-
-        if (self.filename != null) allocator.free(self.filename.?);
-        if (self.copyright != null) allocator.free(self.copyright.?);
-        if (self.date != null) allocator.free(self.date.?);
-
-        self.* = undefined;
-    }
-
-    /// Load a data file from the resources folder into the search index.
-    /// If the file has an associated metadata file, also load the metadata.
-    pub fn load(
-        self: *Resource,
-        gpa: Allocator,
-        arena: Allocator,
-        io: std.Io,
-        normalise: *const Normalize,
-        filename: []const u8,
-        file_name: []const u8,
-        file_type: Type,
-    ) (error{OutOfMemory} || Resources.Error || std.Io.File.StatError || std.Io.File.OpenError || std.fmt.BufPrintError)!void {
-        if (filename.len > 0) self.filename = try arena.dupeZ(u8, filename);
-
-        self.resource = file_type;
-
-        if (file_type == .wav) {
-            if (extract_wav_name(filename)) |sentence| {
-                const sentence_nfc = try normalise.nfc(gpa, sentence);
-                defer sentence_nfc.deinit(gpa);
-                try self.add_sentence(arena, sentence_nfc.slice);
-            }
-        }
-
-        // Check if there is a metadata file to load.
-        var buf: [max_filename_length]u8 = undefined;
-        const metadata_file = std.fmt.bufPrint(&buf, "{s}.txt", .{remove_extension(filename)}) catch return error.FilenameTooLong;
-        const data = load_file_bytes(gpa, io, metadata_file) catch |e| {
-            if (e == error.FileNotFound) {
-                // If no metadata file exists, default to visible
-                self.visible = true;
-                if (self.uid == 0 and file_type == .wav) {
-                    self.uid = try hash_uid(io, file_name, filename);
-                }
-                return;
-            } else {
-                return error.ReadMetadataFailed;
-            }
-        };
-        defer gpa.free(data);
-        const data_nfc = try normalise.nfc(gpa, data);
-        defer data_nfc.deinit(gpa);
-
-        if (data.len != data_nfc.slice.len) {
-            warn("metadata file {s} is not nfc.", .{metadata_file});
-            write_file_bytes(io, filename, data_nfc.slice) catch {
-                warn("update metadata file {s} to nfc failed.", .{metadata_file});
-            };
-        }
-
-        return self.read_metadata(arena, data_nfc.slice);
-    }
-
-    /// Form a uid from the name of the file and the size of the file. Not
-    /// perfect, but it is faster than continually hashing entire files
-    pub fn hash_uid(io: std.Io, name: []const u8, path_name: []const u8) (std.Io.File.StatError || std.Io.File.OpenError)!u64 {
-        var buff: [40]u8 = undefined;
-        const stat = try std.Io.Dir.cwd().statFile(io, path_name, .{ .follow_symlinks = false });
-        const size_info = try std.fmt.bufPrint(&buff, "{d}", .{stat.size});
-        var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
-        sha256.update(name);
-        sha256.update(size_info);
-        const data = sha256.finalResult();
-        return @bitCast(data[0..8].*);
-    }
-
-    /// Update fields of this object using metadata fileds in a text file.
-    pub fn read_metadata(self: *Resource, allocator: Allocator, data: []const u8) (error{ InvalidResourceUID, ReadMetadataFailed, MetadataMissing } || Allocator.Error)!void {
-        var text = data;
-        while (text.len > 0) {
-
-            // Read the field
-            while (text.len > 0 and is_whitespace(text[0])) {
-                text = text[1..];
-            }
-            if (text.len == 0) break;
-            const field = text[0];
-            text = text[1..];
-            while (text.len > 0 and (is_whitespace(text[0]) or text[0] == ':' or text[0] == '=')) {
-                text = text[1..];
-            }
-
-            var eov: usize = 0;
-            var end_candidate: usize = 0;
-            while (text.len > eov and text[eov] != '\n' and text[eov] != '\r') {
-                if (!is_whitespace(text[eov])) end_candidate = eov + 1;
-                eov += 1;
-            }
-            const value = text[0..end_candidate];
-            text = text[eov..];
-            if (value.len == 0) continue;
-
-            switch (field) {
-                's', 'S' => try self.add_sentence(allocator, value),
-                'c', 'C' => self.copyright = try allocator.dupe(u8, value),
-                'v', 'V' => self.visible = is_true(value),
-                'd', 'D' => self.date = try allocator.dupe(u8, value),
-                'l', 'L' => self.link = try allocator.dupe(u8, value),
-                'i', 'I' => {
-                    if (value.len > max_uid_length) {
-                        self.uid = base62.decode(u64, value[0..max_uid_length]) catch {
-                            return error.InvalidResourceUID;
-                        };
-                        continue;
-                    } else {
-                        self.uid = base62.decode(u64, value) catch {
-                            return error.InvalidResourceUID;
-                        };
-                    }
-                    if (self.uid == 0) return error.InvalidResourceUID;
-                },
-                else => return error.ReadMetadataFailed,
-            }
-        }
-    }
-
-    /// Attach a sentence to this resource, ensuring that no duplicate
-    /// sentences are added. If non significant punctuation is found at the
-    /// end of this sentence, also attach a non punctuated version.
-    fn add_sentence(
-        self: *Resource,
-        allocator: Allocator,
-        text: []const u8,
-    ) (error{MetadataMissing} || Allocator.Error)!void {
-        if (text.len == 0) return error.MetadataMissing;
-
-        var found = false;
-        for (self.sentences.items) |i| {
-            if (std.mem.eql(u8, text, i)) {
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-            try self.sentences.append(allocator, try allocator.dupe(u8, text));
-
-        if (sentence_trim(text)) |trim| {
-            if (trim.len > 0) {
-                found = false;
-                for (self.sentences.items) |i| {
-                    if (std.mem.eql(u8, trim, i)) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found)
-                    try self.sentences.append(allocator, try allocator.dupe(u8, trim));
-            }
-        }
-    }
+pub const empty: Resource = .{
+    .uid = 0,
+    .visible = true,
+    .resource = .unknown,
+    .date = null,
+    .copyright = null,
+    .link = null,
+    .sentences = .empty,
+    .filename = null,
+    .bundle_offset = null,
+    .size = 0,
 };
+
+/// Create a `Resource` initialised with the `.empty` placeholder settings.
+pub fn create(allocator: Allocator) Allocator.Error!*Resource {
+    const resource = try allocator.create(Resource);
+    errdefer allocator.destroy(resource);
+    resource.* = .empty;
+    return resource;
+}
+
+/// `deinit` and `destroy` a `create`d resource object.
+pub fn destroy(self: *Resource, allocator: Allocator) void {
+    self.deinit(allocator);
+    allocator.destroy(self);
+}
+
+/// Free any memory allocated by this object.
+pub fn deinit(self: *Resource, allocator: Allocator) void {
+    for (self.sentences.items) |s| {
+        allocator.free(s);
+    }
+    self.sentences.deinit(allocator);
+
+    if (self.bundle_offset == null)
+        if (self.filename != null)
+            allocator.free(self.filename.?);
+
+    if (self.copyright != null) allocator.free(self.copyright.?);
+    if (self.date != null) allocator.free(self.date.?);
+
+    self.* = undefined;
+}
+
+/// Load a data file from the resources folder into the search index.
+/// If the file has an associated metadata file, also load the metadata.
+pub fn load(
+    self: *Resource,
+    gpa: Allocator,
+    arena: Allocator,
+    io: std.Io,
+    normalise: *const Normalize,
+    filename: []const u8,
+    file_name: []const u8,
+    file_type: Type,
+) (error{OutOfMemory} || Resources.Error || std.Io.File.StatError || std.Io.File.OpenError || std.fmt.BufPrintError)!void {
+    if (filename.len > 0) self.filename = try arena.dupeZ(u8, filename);
+
+    self.resource = file_type;
+
+    if (file_type == .wav) {
+        if (extract_wav_name(filename)) |sentence| {
+            const sentence_nfc = try normalise.nfc(gpa, sentence);
+            defer sentence_nfc.deinit(gpa);
+            try self.add_sentence(arena, sentence_nfc.slice);
+        }
+    }
+
+    // Check if there is a metadata file to load.
+    var buf: [max_filename_length]u8 = undefined;
+    const metadata_file = std.fmt.bufPrint(&buf, "{s}.txt", .{remove_extension(filename)}) catch return error.FilenameTooLong;
+    const data = load_file_bytes(gpa, io, metadata_file) catch |e| {
+        if (e == error.FileNotFound) {
+            // If no metadata file exists, default to visible
+            self.visible = true;
+            if (self.uid == 0 and file_type == .wav) {
+                self.uid = try hash_uid(io, file_name, filename);
+            }
+            return;
+        } else {
+            return error.ReadMetadataFailed;
+        }
+    };
+    defer gpa.free(data);
+    const data_nfc = try normalise.nfc(gpa, data);
+    defer data_nfc.deinit(gpa);
+
+    if (data.len != data_nfc.slice.len) {
+        warn("metadata file {s} is not nfc.", .{metadata_file});
+        write_file_bytes(io, filename, data_nfc.slice) catch {
+            warn("update metadata file {s} to nfc failed.", .{metadata_file});
+        };
+    }
+
+    return self.read_metadata(arena, data_nfc.slice);
+}
+
+/// Form a uid from the name of the file and the size of the file. Not
+/// perfect, but it is faster than continually hashing entire files
+pub fn hash_uid(io: std.Io, name: []const u8, path_name: []const u8) (std.Io.File.StatError || std.Io.File.OpenError)!u64 {
+    var buff: [40]u8 = undefined;
+    const stat = try std.Io.Dir.cwd().statFile(io, path_name, .{ .follow_symlinks = false });
+    const size_info = try std.fmt.bufPrint(&buff, "{d}", .{stat.size});
+    var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
+    sha256.update(name);
+    sha256.update(size_info);
+    const data = sha256.finalResult();
+    return @bitCast(data[0..8].*);
+}
+
+/// Update fields of this object using metadata fileds in a text file.
+pub fn read_metadata(self: *Resource, allocator: Allocator, data: []const u8) (error{ InvalidResourceUID, ReadMetadataFailed, MetadataMissing } || Allocator.Error)!void {
+    var text = data;
+    while (text.len > 0) {
+
+        // Read the field
+        while (text.len > 0 and is_whitespace(text[0])) {
+            text = text[1..];
+        }
+        if (text.len == 0) break;
+        const field = text[0];
+        text = text[1..];
+        while (text.len > 0 and (is_whitespace(text[0]) or text[0] == ':' or text[0] == '=')) {
+            text = text[1..];
+        }
+
+        var eov: usize = 0;
+        var end_candidate: usize = 0;
+        while (text.len > eov and text[eov] != '\n' and text[eov] != '\r') {
+            if (!is_whitespace(text[eov])) end_candidate = eov + 1;
+            eov += 1;
+        }
+        const value = text[0..end_candidate];
+        text = text[eov..];
+        if (value.len == 0) continue;
+
+        switch (field) {
+            's', 'S' => try self.add_sentence(allocator, value),
+            'c', 'C' => self.copyright = try allocator.dupe(u8, value),
+            'v', 'V' => self.visible = is_true(value),
+            'd', 'D' => self.date = try allocator.dupe(u8, value),
+            'l', 'L' => self.link = try allocator.dupe(u8, value),
+            'i', 'I' => {
+                if (value.len > max_uid_length) {
+                    self.uid = base62.decode(u64, value[0..max_uid_length]) catch {
+                        return error.InvalidResourceUID;
+                    };
+                    continue;
+                } else {
+                    self.uid = base62.decode(u64, value) catch {
+                        return error.InvalidResourceUID;
+                    };
+                }
+                if (self.uid == 0) return error.InvalidResourceUID;
+            },
+            else => return error.ReadMetadataFailed,
+        }
+    }
+}
+
+/// Attach a sentence to this resource, ensuring that no duplicate
+/// sentences are added. If non significant punctuation is found at the
+/// end of this sentence, also attach a non punctuated version.
+fn add_sentence(
+    self: *Resource,
+    allocator: Allocator,
+    text: []const u8,
+) (error{MetadataMissing} || Allocator.Error)!void {
+    if (text.len == 0) return error.MetadataMissing;
+
+    var found = false;
+    for (self.sentences.items) |i| {
+        if (std.mem.eql(u8, text, i)) {
+            found = true;
+            break;
+        }
+    }
+    if (!found)
+        try self.sentences.append(allocator, try allocator.dupe(u8, text));
+
+    if (sentence_trim(text)) |trim| {
+        if (trim.len > 0) {
+            found = false;
+            for (self.sentences.items) |i| {
+                if (std.mem.eql(u8, trim, i)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                try self.sentences.append(allocator, try allocator.dupe(u8, trim));
+        }
+    }
+}
 
 fn is_whitespace(c: u8) bool {
     return c == ' ' or c == '\n' or c == '\r' or c == '\t';

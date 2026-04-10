@@ -49,7 +49,7 @@ arena: std.heap.ArenaAllocator,
 folder: []const u8 = "",
 
 /// If `loadBundle` was used, this is the path to the bundle.
-bundle_file: []const u8 = "",
+bundle_files: std.ArrayListUnmanaged([]const u8) = .empty,
 
 /// A unicode library is used to normalise words and phrases.
 normalise: ?Normalize,
@@ -72,7 +72,7 @@ pub fn init(gpa: Allocator) (Allocator.Error)!Resources {
         .by_sentence = .empty,
         .normaliser = .empty,
         .folder = "",
-        .bundle_file = "",
+        .bundle_files = .empty,
         .used_resources = null,
     };
 }
@@ -101,8 +101,9 @@ pub fn deinit(self: *Resources, gpa: Allocator) void {
     if (self.folder.len > 0)
         self.arena.allocator().free(self.folder);
 
-    if (self.bundle_file.len > 0)
-        self.arena.allocator().free(self.bundle_file);
+    for (self.bundle_files.items) |item|
+        self.arena.allocator().free(item);
+    self.bundle_files.deinit(self.arena.allocator());
 
     self.arena.deinit();
     self.* = undefined;
@@ -112,9 +113,11 @@ pub fn deinit(self: *Resources, gpa: Allocator) void {
 pub fn loadBundle(
     self: *Resources,
     io: std.Io,
-    bundle_filename: []const u8,
+    bundle_file: []const u8,
 ) (Allocator.Error || std.Io.File.OpenError || Error || std.Io.Reader.Error || std.Io.Reader.Error)!void {
     random.seed(io);
+
+    const bundle_filename: [:0]u8 = try self.arena.allocator().dupeZ(u8, bundle_file);
 
     var buffer: [300:0]u8 = undefined;
     var rbuffer: [4196:0]u8 = undefined;
@@ -140,6 +143,7 @@ pub fn loadBundle(
         r.resource = @enumFromInt(resource_type);
         r.uid = try rb.interface.takeInt(u64, e);
         r.size = try rb.interface.takeInt(u32, e);
+        r.filename = bundle_filename;
         const sentence_count = try rb.interface.takeInt(u8, e);
         for (0..sentence_count) |_| {
             const name_len: u8 = try rb.interface.takeInt(u8, e);
@@ -152,7 +156,7 @@ pub fn loadBundle(
         try self.registerResource(r, null);
     }
 
-    self.bundle_file = try self.arena.allocator().dupe(u8, bundle_filename);
+    try self.bundle_files.append(self.arena.allocator(), bundle_filename);
 }
 
 /// Internal function that adds a newly loaded resource into the indexes.
@@ -784,13 +788,6 @@ pub fn loadResource(
         try manifest.put(self.arena.allocator(), resource.uid, resource);
     }
 
-    // If a file was loaded using `loadDirectory` the resources
-    // has a filename to use to load the file data.
-    if (resource.filename) |filename| {
-        // Resource has a filename, read a file.
-        return try load_file_bytes(gpa, io, filename);
-    }
-
     // If the file was found in a resource bundle, a byte offset
     // into the bundle is available to use to load the file data.
     if (resource.bundle_offset) |bundle_offset| {
@@ -798,10 +795,17 @@ pub fn loadResource(
         return try load_file_byte_slice(
             gpa,
             io,
-            self.bundle_file,
+            resource.filename.?,
             bundle_offset,
             resource.size,
         );
+    }
+
+    // If a file was loaded using `loadDirectory` the resources
+    // has a filename to use to load the file data.
+    if (resource.filename) |filename| {
+        // Resource has a filename, read a file.
+        return try load_file_bytes(gpa, io, filename);
     }
 
     // This should never occur.
@@ -1011,7 +1015,7 @@ test "resource init" {
     defer resources.deinit(gpa);
 
     try expectEqual(0, resources.by_uid.count());
-    try expectEqual(0, resources.bundle_file.len);
+    try expectEqual(0, resources.bundle_files.items.len);
 }
 
 test "load_resource image" {
@@ -1400,15 +1404,16 @@ const Normalize = @import("Normalize");
 
 pub const UniqueWords = @import("UniqueWords.zig");
 pub const random = @import("random.zig");
-pub const Resource = @import("resource.zig").Resource;
 const exportImage = @import("export_image.zig").exportImage;
-const load_file_bytes = @import("resource.zig").load_file_bytes;
-const load_file_byte_slice = @import("resource.zig").load_file_byte_slice;
-const load_folder_file_bytes = @import("resource.zig").load_folder_file_bytes;
-const write_folder_file_bytes = @import("resource.zig").write_folder_file_bytes;
-const cache_has_file = @import("resource.zig").cache_has_file;
-const sentence_trim = @import("resource.zig").sentence_trim;
-const lessThan = @import("resource.zig").lessThan;
+
+pub const Resource = @import("Resource.zig");
+const load_file_bytes = Resource.load_file_bytes;
+const load_file_byte_slice = Resource.load_file_byte_slice;
+const load_folder_file_bytes = Resource.load_folder_file_bytes;
+const write_folder_file_bytes = Resource.write_folder_file_bytes;
+const cache_has_file = Resource.cache_has_file;
+const sentence_trim = Resource.sentence_trim;
+const lessThan = Resource.lessThan;
 
 pub const Type = @import("Type.zig").Type;
 
