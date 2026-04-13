@@ -118,6 +118,7 @@ pub fn loadBundle(
     random.seed(io);
 
     const bundle_filename: [:0]u8 = try self.arena.allocator().dupeZ(u8, bundle_file);
+    errdefer self.arena.allocator().free(bundle_filename);
 
     var buffer: [300:0]u8 = undefined;
     var rbuffer: [4196:0]u8 = undefined;
@@ -171,7 +172,7 @@ pub fn registerResource(
     filename: ?[]const u8,
 ) error{ OutOfMemory, ReadMetadataFailed }!void {
     if (self.by_uid.contains(r.uid)) {
-        err("duplicated uid {any}. bundle_offset={d} filename={s}\n", .{
+        err("duplicated uid={f} bundle_offset={d} filename={s}\n", .{
             base62.writer(u64, r.uid),
             r.bundle_offset orelse 0,
             r.filename orelse "",
@@ -223,7 +224,10 @@ pub fn registerResource(
     var unique = UniqueWords.init(self.arena.allocator());
     defer unique.deinit();
     unique.addArray(&r.sentences.items) catch |f| {
-        err("invalid sentence content. Resource: {f} Error: {any}", .{ base62.writer(u64, r.uid), f });
+        err("invalid sentence content. Resource: {f} Error: {any}", .{
+            base62.writer(u64, r.uid),
+            f,
+        });
         return error.ReadMetadataFailed;
     };
     var it = unique.words.iterator();
