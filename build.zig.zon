@@ -1,13 +1,13 @@
 .{
     .name = .resources,
-    .version = "1.3.4",
+    .version = "1.3.5",
     .fingerprint = 0xef66ebae23b04127,
     .minimum_zig_version = "0.16.0",
 
     .dependencies = .{
         .praxis = .{
-            .url = "git+https://github.com/loftafi/praxis.git#3af295f37fd1b84206418bf885bace5cc1d3c0a7",
-            .hash = "praxis-0.6.10-FPf2NQH1BgAlN8Cn_7SOKTPgBY6zSD3CCVr9yci5g80Q",
+            .url = "git+https://github.com/loftafi/praxis.git#ab9c3135944237459a204eddfbdcd6fdf5184e87",
+            .hash = "praxis-0.6.11-FPf2NdX1BgDy4SG3P4oztflZHebiSixpjieIhCeXRqtX",
         },
         .zeit = .{
             .url = "git+https://github.com/rockorager/zeit?ref=0.16#da59d0141ba556c77d503d5e1aebeaf5a6bf9e26",
