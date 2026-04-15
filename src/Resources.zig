@@ -172,7 +172,7 @@ pub fn registerResource(
     filename: ?[]const u8,
 ) error{ OutOfMemory, ReadMetadataFailed }!void {
     if (self.by_uid.contains(r.uid)) {
-        err("duplicated uid={f} bundle_offset={d} filename={s}\n", .{
+        err("duplicated uid={f} bundle_offset={d} filename={s}", .{
             base62.writer(u64, r.uid),
             r.bundle_offset orelse 0,
             r.filename orelse "",
@@ -184,10 +184,11 @@ pub fn registerResource(
 
     if (filename != null) {
         self.by_sentence.add(self.arena.allocator(), filename.?, r) catch |e| {
-            err(
-                "error: invalid metadata in file {any} {s} {any}\n",
-                .{ r.uid, filename.?, e },
-            );
+            err("error: invalid metadata in file {f} {s} {t}", .{
+                base62.writer(u64, r.uid),
+                filename orelse "",
+                e,
+            });
             return error.ReadMetadataFailed;
         };
     }
