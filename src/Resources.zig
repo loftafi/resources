@@ -1425,7 +1425,7 @@ pub const Type = @import("Type.zig").Type;
 const Parser = @import("praxis").Parser;
 const BoundedArray = @import("praxis").BoundedArray;
 const SearchIndex = @import("praxis").SearchIndex;
-const Normaliser = @import("praxis").normaliser.Normaliser;
+const Normaliser = @import("praxis").Normaliser;
 
 const generate_ogg_audio = @import("export_audio.zig").generate_ogg_audio;
 const Size = @import("export_image.zig").Size;
