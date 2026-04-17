@@ -309,7 +309,9 @@ pub fn saveBundle(
         //std.log.info("output file: {s} size={d}", .{ uid, size });
 
         const stat = try file.stat(io);
-        if (resource.resource == .wav and options.audio == .ogg) {
+        if (options.preserveResource(resource.uid)) {
+            add_size = stat.size;
+        } else if (resource.resource == .wav and options.audio == .ogg) {
             const name = try std.fmt.bufPrint(&buff2, "{s}.ogg", .{uid});
             //debug("check cache for: {s}", .{name});
             if (try cache_has_file(io, cache_dir, name)) |cache_size| {
@@ -927,6 +929,9 @@ pub const SaveOptions = struct {
     /// Reduce the size of any image that is wider orhigher than this limit.
     max_image_size: Size = .{ .width = 10000, .height = 10000 },
 
+    /// List of resources that should not be downscaled or re-encoded.
+    preserve_resource: []const u64 = &.{},
+
     /// Request the exact `original` image, or request conversion to `jpg`
     pub const ImageOption = enum {
         /// Do not convert images to jpg.
@@ -945,6 +950,13 @@ pub const SaveOptions = struct {
         /// Normalise and convert `wav` files to `ogg` files.
         ogg,
     };
+
+    pub inline fn preserveResource(self: *const SaveOptions, uid: u64) bool {
+        for (self.preserve_resource) |value|
+            if (uid == value)
+                return true;
+        return false;
+    }
 };
 
 /// Used to indicate if a partial or exact search match is needed.
