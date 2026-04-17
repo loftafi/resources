@@ -308,6 +308,7 @@ pub fn saveBundle(
 
         //std.log.info("output file: {s} size={d}", .{ uid, size });
 
+        const stat = try file.stat(io);
         if (resource.resource == .wav and options.audio == .ogg) {
             const name = try std.fmt.bufPrint(&buff2, "{s}.ogg", .{uid});
             //debug("check cache for: {s}", .{name});
@@ -351,9 +352,32 @@ pub fn saveBundle(
             }
             add_cache = true;
             add_type = .jpg;
+        } else if ((resource.resource == .jpg or resource.resource == .png) and options.image == .large_to_jpg and stat.size > large_image_max_size) {
+            const name = try std.fmt.bufPrint(&buff2, "{s}.jpg", .{uid});
+            //debug("check cache for: {s}", .{name});
+            if (try cache_has_file(io, cache_dir, name)) |cache_size| {
+                add_size = cache_size;
+            } else {
+                const processed = exportImage(
+                    gpa,
+                    io,
+                    resource,
+                    self,
+                    .{ .width = 800, .height = 800 },
+                    .fill,
+                    .jpg,
+                ) catch |f| {
+                    err("exportImage. {any}  {s}", .{ f, uid });
+                    continue;
+                };
+                defer gpa.free(processed);
+                debug("generated jpg {s} for {t} ({d} to {d} bytes)", .{ filename, resource.resource, add_size, processed.len });
+                try write_folder_file_bytes(io, cache_dir, name, processed);
+                add_size = processed.len;
+            }
+            add_cache = true;
+            add_type = .jpg;
         } else {
-            // TODO: remove stat, we have to load the bytes of the file anyway
-            const stat = try file.stat(io);
             add_size = stat.size;
         }
 
@@ -909,6 +933,8 @@ pub const SaveOptions = struct {
         original,
         /// Convert images to jpg.
         jpg,
+        /// Only convert large images to jpg.
+        large_to_jpg,
     };
 
     /// Request that audio files are included as is, or request that `wav`
@@ -1391,6 +1417,8 @@ test "bundle" {
     try expectEqualStrings(data1, data1b);
     try expectEqualStrings(data2, data2b);
 }
+
+const large_image_max_size = 50 * 1024;
 
 const builtin = @import("builtin");
 const std = @import("std");
