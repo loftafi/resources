@@ -770,8 +770,9 @@ pub fn lookupOne(
 
     try self.lookup(gpa, sentence, category, .exact, &results);
     if (results.items.len == 0) {
-        debug("lookupOne() name='{s}' found no results.", .{
+        debug("lookupOne() name='{s}' category={t} found no results.", .{
             sentence,
+            category,
         });
         return null;
     }
