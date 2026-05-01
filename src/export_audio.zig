@@ -193,7 +193,7 @@ test "audio_to_ogg" {
     defer resources.deinit(gpa);
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
-    const resource = try resources.lookupOne(gpa, "ἄρτος", .wav);
+    const resource = try resources.lookupRandom("ἄρτος", .wav);
     try expectEqual(true, resource.?.visible);
     try expectEqual(.wav, resource.?.resource);
     try expectEqual(1, resource.?.sentences.items.len);

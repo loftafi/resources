@@ -75,7 +75,6 @@ pub fn load(
     gpa: Allocator,
     arena: Allocator,
     io: std.Io,
-    normalise: *const Normalize,
     filename: []const u8,
     file_name: []const u8,
     file_type: Type,
@@ -86,9 +85,9 @@ pub fn load(
 
     if (file_type == .wav) {
         if (extract_wav_name(filename)) |sentence| {
-            const sentence_nfc = try normalise.nfc(gpa, sentence);
+            const sentence_nfc = try Normalize.nfc(gpa, sentence);
             defer sentence_nfc.deinit(gpa);
-            try self.add_sentence(arena, sentence_nfc.slice);
+            try self.addSentence(arena, sentence_nfc.slice);
         }
     }
 
@@ -108,7 +107,7 @@ pub fn load(
         }
     };
     defer gpa.free(data);
-    const data_nfc = try normalise.nfc(gpa, data);
+    const data_nfc = try Normalize.nfc(gpa, data);
     defer data_nfc.deinit(gpa);
 
     if (data.len != data_nfc.slice.len) {
@@ -118,12 +117,16 @@ pub fn load(
         };
     }
 
-    return self.read_metadata(arena, data_nfc.slice);
+    return self.readMetadata(arena, data_nfc.slice);
 }
 
 /// Form a uid from the name of the file and the size of the file. Not
 /// perfect, but it is faster than continually hashing entire files
-pub fn hash_uid(io: std.Io, name: []const u8, path_name: []const u8) (std.Io.File.StatError || std.Io.File.OpenError)!u64 {
+fn hash_uid(
+    io: std.Io,
+    name: []const u8,
+    path_name: []const u8,
+) (std.Io.File.StatError || std.Io.File.OpenError)!u64 {
     var buff: [40]u8 = undefined;
     const stat = try std.Io.Dir.cwd().statFile(io, path_name, .{ .follow_symlinks = false });
     const size_info = try std.fmt.bufPrint(&buff, "{d}", .{stat.size});
@@ -135,7 +138,7 @@ pub fn hash_uid(io: std.Io, name: []const u8, path_name: []const u8) (std.Io.Fil
 }
 
 /// Update fields of this object using metadata fileds in a text file.
-pub fn read_metadata(self: *Resource, allocator: Allocator, data: []const u8) (error{ InvalidResourceUID, ReadMetadataFailed, MetadataMissing } || Allocator.Error)!void {
+fn readMetadata(self: *Resource, allocator: Allocator, data: []const u8) (error{ InvalidResourceUID, ReadMetadataFailed, MetadataMissing } || Allocator.Error)!void {
     var text = data;
     while (text.len > 0) {
 
@@ -161,7 +164,7 @@ pub fn read_metadata(self: *Resource, allocator: Allocator, data: []const u8) (e
         if (value.len == 0) continue;
 
         switch (field) {
-            's', 'S' => try self.add_sentence(allocator, value),
+            's', 'S' => try self.addSentence(allocator, value),
             'c', 'C' => self.copyright = try allocator.dupe(u8, value),
             'v', 'V' => self.visible = is_true(value),
             'd', 'D' => self.date = try allocator.dupe(u8, value),
@@ -187,7 +190,7 @@ pub fn read_metadata(self: *Resource, allocator: Allocator, data: []const u8) (e
 /// Attach a sentence to this resource, ensuring that no duplicate
 /// sentences are added. If non significant punctuation is found at the
 /// end of this sentence, also attach a non punctuated version.
-fn add_sentence(
+fn addSentence(
     self: *Resource,
     allocator: Allocator,
     text: []const u8,
@@ -470,13 +473,13 @@ test "remove_extension" {
     try expectEqualStrings("c:\\happy\\fish", remove_extension("c:\\happy\\fish.txt"));
 }
 
-test "add_sentence" {
+test "addSentence" {
     const allocator = std.testing.allocator;
 
     var r = Resource.empty;
     defer r.deinit(allocator);
 
-    try r.add_sentence(allocator, "The fish.");
+    try r.addSentence(allocator, "The fish.");
 
     try expectEqual(2, r.sentences.items.len);
     try expectEqualStrings("The fish.", r.sentences.items[0]);
@@ -553,12 +556,12 @@ test "wav_filename" {
     try expectEqual(null, extract_wav_name("jay~f ish~2.txt"));
 }
 
-test "read_metadata" {
+test "readMetadata" {
     const gpa = std.testing.allocator;
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.read_metadata(gpa, "v:y\nd:1010\n");
+        try r.readMetadata(gpa, "v:y\nd:1010\n");
         try expectEqual(true, r.visible);
         try expect(r.date != null);
         try expectEqualStrings("1010", r.date.?);
@@ -566,7 +569,7 @@ test "read_metadata" {
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.read_metadata(gpa, "v:n\nd:1010");
+        try r.readMetadata(gpa, "v:n\nd:1010");
         try expectEqual(false, r.visible);
         try expect(r.date != null);
         try expectEqualStrings("1010", r.date.?);
@@ -574,7 +577,7 @@ test "read_metadata" {
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.read_metadata(gpa, "c:bob\ni:12ab");
+        try r.readMetadata(gpa, "c:bob\ni:12ab");
         try expectEqual(true, r.visible);
         try expect(r.copyright != null);
         try expectEqualStrings("bob", r.copyright.?);
@@ -584,14 +587,14 @@ test "read_metadata" {
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.read_metadata(gpa, "v: 0 \nd:1010 ");
+        try r.readMetadata(gpa, "v: 0 \nd:1010 ");
         try expectEqual(false, r.visible);
         try expectEqualStrings("1010", r.date.?);
     }
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.read_metadata(gpa, "s: fish \rs:cat dog\nv: true \nd:1010 ");
+        try r.readMetadata(gpa, "s: fish \rs:cat dog\nv: true \nd:1010 ");
         try expectEqual(true, r.visible);
         try expectEqualStrings("1010", r.date.?);
         try expectEqual(2, r.sentences.items.len);

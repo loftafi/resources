@@ -7,8 +7,8 @@ var value: usize = 99;
 /// Track if seeding has occurred.
 var seeded: bool = false;
 
-/// Return a number greater than zero, and less than the `limit`. Call `seed()`
-/// first if you do not want a predictable sequence of numbers.
+/// Return a number greater than zero, and less than `limit`. Call `seed()`
+/// one time on startup if you do not want a predictable sequence of numbers.
 pub fn random(limit: usize) usize {
     if (limit == 0) return 0;
 

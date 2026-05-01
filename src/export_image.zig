@@ -424,7 +424,7 @@ test "export_image" {
     defer tmp.close(io);
 
     {
-        const resource = try resources.lookupOne(gpa, "μάχαιρα", .image);
+        const resource = try resources.lookupRandom("μάχαιρα", .image);
         try expect(resource != null);
 
         const data = try exportImage(
@@ -443,7 +443,7 @@ test "export_image" {
     }
 
     {
-        const resource = try resources.lookupOne(gpa, "δύο κρέα", .image);
+        const resource = try resources.lookupRandom("δύο κρέα", .image);
         try expect(resource != null);
 
         const data2 = try exportImage(

@@ -19,7 +19,7 @@
 ///
 /// One convenient method to create a bundle is by using the following proces.
 ///
-/// 1. During app runtime, Use `lookupOne()` or `lookup()` to find
+/// 1. During app runtime, Use `lookupRandom()` or `lookup()` to find
 ///    a `Resource` record, then
 /// 2. use `loadResource()` to read file contents.
 /// 3. `loadResource()` can be used to build an internal `used_resources`
@@ -51,9 +51,6 @@ folder: []const u8 = "",
 /// If `loadBundle` was used, this is the path to the bundle.
 bundle_files: std.ArrayListUnmanaged([]const u8) = .empty,
 
-/// A unicode library is used to normalise words and phrases.
-normalise: ?Normalize,
-
 /// A simple library used to normalise Ancient Greek text.
 normaliser: Normaliser,
 
@@ -66,7 +63,6 @@ used_resources: ?std.AutoHashMapUnmanaged(u64, *const Resource),
 pub fn init(gpa: Allocator) (Allocator.Error)!Resources {
     return .{
         .arena = .init(gpa),
-        .normalise = null,
         .by_uid = .empty,
         .by_word = .empty,
         .by_sentence = .empty,
@@ -79,9 +75,6 @@ pub fn init(gpa: Allocator) (Allocator.Error)!Resources {
 
 /// Cleanup the arena and any short lived objects used by this struct.
 pub fn deinit(self: *Resources, gpa: Allocator) void {
-    if (self.normalise != null)
-        self.normalise.?.deinit(self.arena.allocator());
-
     self.normaliser.deinit(gpa);
 
     if (self.used_resources) |*manifest|
@@ -533,9 +526,6 @@ pub fn loadDirectory(
     if (self.used_resources == null)
         self.used_resources = .empty;
 
-    if (self.normalise == null)
-        self.normalise = try .init(self.arena.allocator());
-
     self.folder = try self.arena.allocator().dupeZ(u8, folder);
 
     var filename: ArrayListUnmanaged(u8) = .empty;
@@ -570,7 +560,7 @@ pub fn loadDirectory(
         //err("handled file {s} ({s} {s})", .{ file.name, file_info.name, @tagName(file_info.extension) });
 
         // Check the filename is nfc encoded
-        const file_nfc = try self.normalise.?.nfc(gpa, file.name);
+        const file_nfc = try Normalize.nfc(gpa, file.name);
         defer file_nfc.deinit(gpa);
         if (file.name.len != file_nfc.slice.len) {
             warn("Repo file '{s}' is not nfc ({d}:{d}). mv \"{s}\" \"{s}\"", .{
@@ -594,7 +584,6 @@ pub fn loadDirectory(
             gpa,
             self.arena.allocator(),
             io,
-            &self.normalise.?,
             filename.items,
             file_info.name,
             file_info.extension,
@@ -646,67 +635,53 @@ fn unique_random_u64(self: *Resources, io: std.Io) error{ReadMetadataFailed}!u64
 }
 
 /// Search for a resource which has a sentence that contains the
-///  requested keywords
+/// requested keywords. Keywords must be normalised with
+/// `resources.Normalize.nfc()` if input text is not already normalised.
 pub fn search(
     self: *Resources,
-    gpa: Allocator,
     keywords: []const []const u8,
     category: SearchCategory,
-    results: *ArrayListUnmanaged(*Resource),
-) !void {
-    var seen: std.AutoHashMapUnmanaged(u64, *Resource) = .empty;
-    defer seen.deinit(gpa);
+    buffer: []*Resource,
+) error{ OutOfMemory, NormalisationFailed }![]const *Resource {
+    var result_count: usize = 0;
+
     for (keywords) |keyword| {
         const r = try self.by_word.lookup(keyword);
         if (r == null) continue;
         for (r.?.exact_accented.items) |x| {
             if (category.matches(x.resource)) {
-                const entry = try seen.getOrPut(gpa, x.uid);
-                if (entry.found_existing) continue;
-                entry.value_ptr.* = x;
-                try results.append(gpa, x);
+                appendUniqueOnly(buffer, &result_count, x);
+                if (result_count == buffer.len) return buffer;
             }
         }
-        if (results.items.len == 0) {
+        if (result_count == 0) {
             for (r.?.exact_unaccented.items) |x| {
                 if (category.matches(x.resource)) {
-                    const entry = try seen.getOrPut(gpa, x.uid);
-                    if (entry.found_existing) continue;
-                    entry.value_ptr.* = x;
-                    try results.append(gpa, x);
+                    appendUniqueOnly(buffer, &result_count, x);
+                    if (result_count == buffer.len) return buffer;
                 }
             }
         }
     }
+    return buffer[0..result_count];
 }
 
 /// Return all resources which _exactly_ or _partially_ match a filename or
-/// sentence in the metadata file.
-/// with a resource exactly matches. Full stops at the end of sentences.
-/// are ignored. Does not support searching for a single word inside a
-/// filename, use `search()` for single word keyword search.
+/// sentence in the metadata file. Keywords _must_ be normalised with
+/// `resources.Normalize.nfc()` if input text is not already normalised.
+/// Full stops at the end of sentences. are ignored. Does not support
+/// searching for a single word inside a filename, use `search()` for
+/// single word keyword search.
 pub fn lookup(
     self: *Resources,
-    gpa: Allocator,
     sentence: []const u8,
     category: SearchCategory,
     match: Match,
-    results: *ArrayListUnmanaged(*Resource),
-) (error{OutOfMemory} || Error)!void {
-    if (sentence.len == 0) return;
+    buffer: []*Resource,
+) (error{OutOfMemory} || Error)![]const *Resource {
+    if (sentence.len == 0) return &.{};
 
-    if (self.normalise == null)
-        self.normalise = try .init(self.arena.allocator());
-
-    // Normalise to nfc and normalise the characters with index rules.
-    const sentence_nfc = try self.normalise.?.nfc(gpa, sentence);
-    defer sentence_nfc.deinit(gpa);
-
-    if (sentence.len != sentence_nfc.slice.len) {
-        warn("lookup expects nfc encoding.", .{});
-    }
-
-    const info = self.normaliser.normalise(sentence_nfc.slice) catch |f| {
+    const info = self.normaliser.normalise(sentence) catch |f| {
         if (f == error.EmptyWord) return error.QueryEmpty;
         if (f == error.WordTooLong) return error.QueryTooLong;
         if (f == error.Overflow) return error.QueryTooLong;
@@ -720,6 +695,7 @@ pub fn lookup(
 
     const query = info.accented;
     const trimmed = sentence_trim(info.accented);
+    var result_count: usize = 0;
 
     // Lookup by exact full filename (excluding extension and prefixes)
     const search_results = try self.by_sentence.lookup(query);
@@ -729,30 +705,38 @@ pub fn lookup(
 
     if (search_results) |r| {
         for (r.exact_accented.items) |x| {
-            if (category.matches(x.resource))
-                try append_if_not_found(results, gpa, x);
+            if (category.matches(x.resource)) {
+                appendUniqueOnly(buffer, &result_count, x);
+                if (result_count == buffer.len) return buffer;
+            }
         }
     }
 
     if (trimmed_results) |tr| {
         for (tr.exact_accented.items) |x| {
-            if (category.matches(x.resource))
-                try append_if_not_found(results, gpa, x);
+            if (category.matches(x.resource)) {
+                appendUniqueOnly(buffer, &result_count, x);
+                if (result_count == buffer.len) return buffer;
+            }
         }
     }
 
     if (match == .unaccented) {
         if (try self.by_sentence.lookup(info.unaccented)) |r| {
             for (r.exact_unaccented.items) |x| {
-                if (category.matches(x.resource))
-                    try append_if_not_found(results, gpa, x);
+                if (category.matches(x.resource)) {
+                    appendUniqueOnly(buffer, &result_count, x);
+                    if (result_count == buffer.len) return buffer;
+                }
             }
         }
 
         if (trimmed_results) |tr| {
             for (tr.exact_unaccented.items) |x| {
-                if (category.matches(x.resource))
-                    try append_if_not_found(results, gpa, x);
+                if (category.matches(x.resource)) {
+                    appendUniqueOnly(buffer, &result_count, x);
+                    if (result_count == buffer.len) return buffer;
+                }
             }
         }
     }
@@ -760,51 +744,56 @@ pub fn lookup(
     if (match == .partial) {
         if (search_results) |r| {
             for (r.partial_match.items) |x| {
-                if (category.matches(x.resource))
-                    try append_if_not_found(results, gpa, x);
+                if (category.matches(x.resource)) {
+                    appendUniqueOnly(buffer, &result_count, x);
+                    if (result_count == buffer.len) return buffer;
+                }
             }
-            if (results.items.len > 0)
-                return;
+            if (result_count > 0)
+                return buffer[0..result_count];
         }
 
         if (trimmed_results) |tr| {
             for (tr.partial_match.items) |x| {
-                if (category.matches(x.resource))
-                    try append_if_not_found(results, gpa, x);
+                if (category.matches(x.resource)) {
+                    appendUniqueOnly(buffer, &result_count, x);
+                    if (result_count == buffer.len) return buffer;
+                }
             }
-            if (results.items.len > 0)
-                return;
+            if (result_count > 0)
+                return buffer[0..result_count];
         }
     }
+
+    return buffer[0..result_count];
 }
 
 /// Return a resource where the filename or attached sentence
 /// exactly matches. Undecided if this should be case-insensitive.
-pub fn lookupOne(
+/// Keywords _must_ be normalised with `resources.Normalize.nfc()`
+/// if input text is not already normalised.
+pub fn lookupRandom(
     self: *Resources,
-    gpa: Allocator,
     sentence: []const u8,
     category: SearchCategory,
 ) (error{OutOfMemory} || Error)!?*Resource {
     if (sentence.len == 0) {
-        debug("lookupOne() called with empty sentence.", .{});
+        debug("lookupRandom() called with empty sentence.", .{});
         return null;
     }
 
-    var results: ArrayListUnmanaged(*Resource) = .empty;
-    defer results.deinit(gpa);
-
-    try self.lookup(gpa, sentence, category, .exact, &results);
-    if (results.items.len == 0) {
-        debug("lookupOne() name='{s}' category={t} found no results.", .{
+    var buffer: [20]*Resource = undefined;
+    const results = try self.lookup(sentence, category, .exact, &buffer);
+    if (results.len == 0) {
+        debug("lookupRandom() name='{s}' category={t} found no results.", .{
             sentence,
             category,
         });
         return null;
     }
 
-    const choose = random.random(results.items.len);
-    return results.items[choose];
+    const choose = random.random(results.len);
+    return results[choose];
 }
 
 /// Return the binary data of a resource. Depending on where the file
@@ -1016,15 +1005,17 @@ fn read_extension(path: []const u8) []const u8 {
     return "";
 }
 
-inline fn append_if_not_found(
-    results: *ArrayListUnmanaged(*Resource),
-    gpa: Allocator,
+inline fn appendUniqueOnly(
+    buffer: []*Resource,
+    count: *usize,
     resource: *Resource,
-) error{OutOfMemory}!void {
-    for (results.items) |item| {
-        if (item.uid == resource.uid) return;
+) void {
+    if (count.* == buffer.len) return;
+    for (0..count.*) |index| {
+        if (buffer[index].uid == resource.uid) return;
     }
-    try results.append(gpa, resource);
+    buffer[count.*] = resource;
+    count.* += 1;
 }
 
 /// Describes a table of contents entry in a bundle file.
@@ -1069,14 +1060,10 @@ test "load_resource image" {
     var resources: Resources = try .init(gpa);
     defer resources.deinit(gpa);
 
-    // normalise initialisation was skipped because this
-    // test doesn't use loadDirectory.
-    resources.normalise = try .init(resources.arena.allocator());
-
     const file = "./test/repo/GzeBWE.png";
     const info = Resources.FilenameComponents.split(file);
     var resource: Resource = .empty;
-    try resource.load(gpa, gpa, io, &resources.normalise.?, file, info.name, info.extension);
+    try resource.load(gpa, gpa, io, file, info.name, info.extension);
     defer resource.deinit(gpa);
 
     try expectEqual(3989967536, resource.uid);
@@ -1097,17 +1084,13 @@ test "load_resource audio" {
     var resources: Resources = try .init(gpa);
     defer resources.deinit(gpa);
 
-    // normalise initialisation was skipped because this
-    // test doesn't use loadDirectory.
-    resources.normalise = try .init(resources.arena.allocator());
-
     const file = "./test/repo/jay~ἄρτος.wav";
     const info = Resources.FilenameComponents.split(file);
     try expectEqualStrings("jay~ἄρτος", info.name);
     try expectEqual(.wav, info.extension);
 
     var resource: Resource = .empty;
-    try resource.load(gpa, gpa, io, &resources.normalise.?, file, info.name, info.extension);
+    try resource.load(gpa, gpa, io, file, info.name, info.extension);
     defer resource.deinit(std.testing.allocator);
 
     //try expect(0 != resource.uid);
@@ -1130,17 +1113,15 @@ test "search resources" {
     defer keywords.deinit(gpa);
     try keywords.append(gpa, "ἄγγελος");
 
-    var results: std.ArrayListUnmanaged(*Resource) = .empty;
-    defer results.deinit(gpa);
+    var buffer: [10]*Resource = undefined;
 
     //var i = resources.by_sentence.index.keyIterator();
     //while (i.next()) |key| {
     //    err("by_sentence key = {s}", .{key.*});
     //}
 
-    results.clearRetainingCapacity();
-    try resources.search(gpa, keywords.items, .any, &results);
-    try expectEqual(0, results.items.len);
+    var results = try resources.search(keywords.items, .any, &buffer);
+    try expectEqual(0, results.len);
 
     // Test files have this exact string
     try expect(resources.by_sentence.index.get("ασεἄρτο") == null);
@@ -1154,74 +1135,61 @@ test "search resources" {
     try expect(resources.by_sentence.index.get("ὁ Δαυίδ λέγει") == null);
     try expect(resources.by_sentence.index.get("ὁ Δαυίδ λέγει·") == null);
 
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "fewhfoihsd4565", .any, .partial, &results);
-    try expectEqual(0, results.items.len);
-    try resources.lookup(gpa, "GzeBWE", .any, .partial, &results);
-    try expectEqual(1, results.items.len);
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "κρέα", .any, .partial, &results);
-    try expectEqual(2, results.items.len);
-    results.clearRetainingCapacity();
+    results = try resources.lookup("fewhfoihsd4565", .any, .partial, &buffer);
+    try expectEqual(0, results.len);
+
+    results = try resources.lookup("GzeBWE", .any, .partial, &buffer);
+    try expectEqual(1, results.len);
+
+    results = try resources.lookup("κρέα", .any, .partial, &buffer);
+    try expectEqual(2, results.len);
 
     // A wav file and an image file match this
-    try resources.lookup(gpa, "μάχαιρα", .any, .partial, &results);
-    try expectEqual(2, results.items.len);
-    results.clearRetainingCapacity();
+    results = try resources.lookup("μάχαιρα", .any, .partial, &buffer);
+    try expectEqual(2, results.len);
 
-    try resources.lookup(gpa, "μάχαιρα.", .any, .partial, &results);
-    try expectEqual(2, results.items.len);
-    results.clearRetainingCapacity();
+    results = try resources.lookup("μάχαιρα.", .any, .partial, &buffer);
+    try expectEqual(2, results.len);
 
-    try resources.lookup(gpa, "ὁ δαυὶδ λέγει", .any, .partial, &results);
-    try expectEqual(1, results.items.len);
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "ὁ Δαυὶδ λέγει", .any, .partial, &results);
-    try expectEqual(1, results.items.len);
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "ὁ Δαυὶδ λέγει·", .any, .partial, &results);
-    try expectEqual(1, results.items.len);
+    results = try resources.lookup("ὁ δαυὶδ λέγει", .any, .partial, &buffer);
+    try expectEqual(1, results.len);
 
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "ὁ Δαυὶδ λέγει·", .any, .partial, &results);
-    try expectEqual(1, results.items.len);
+    results = try resources.lookup("ὁ Δαυὶδ λέγει", .any, .partial, &buffer);
+    try expectEqual(1, results.len);
+
+    results = try resources.lookup("ὁ Δαυὶδ λέγει·", .any, .partial, &buffer);
+    try expectEqual(1, results.len);
+
+    results = try resources.lookup("ὁ Δαυὶδ λέγει·", .any, .partial, &buffer);
+    try expectEqual(1, results.len);
 
     // Not the start of a sentence
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "Δαυὶδ", .any, .partial, &results);
-    try expectEqual(0, results.items.len);
+    results = try resources.lookup("Δαυὶδ", .any, .partial, &buffer);
+    try expectEqual(0, results.len);
 
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "πτωχός", .any, .partial, &results);
-    try expectEqual(2, results.items.len);
+    results = try resources.lookup("πτωχός", .any, .partial, &buffer);
+    try expectEqual(2, results.len);
 
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "πτωχός.", .any, .partial, &results);
-    try expectEqual(2, results.items.len);
+    results = try resources.lookup("πτωχός.", .any, .partial, &buffer);
+    try expectEqual(2, results.len);
 
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "ἄρτος", .audio, .partial, &results);
-    try expectEqual(1, results.items.len);
+    results = try resources.lookup("ἄρτος", .audio, .partial, &buffer);
+    try expectEqual(1, results.len);
 
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "ἄρτος.", .audio, .partial, &results);
-    try expectEqual(1, results.items.len);
+    results = try resources.lookup("ἄρτος.", .audio, .partial, &buffer);
+    try expectEqual(1, results.len);
 
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "ἄρτος;", .audio, .partial, &results);
-    try expectEqual(1, results.items.len);
+    results = try resources.lookup("ἄρτος;", .audio, .partial, &buffer);
+    try expectEqual(1, results.len);
 
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "ἄρτος", .image, .partial, &results);
-    try expectEqual(0, results.items.len);
+    results = try resources.lookup("ἄρτος", .image, .partial, &buffer);
+    try expectEqual(0, results.len);
 
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "γυναῖκας· βλέψατε!", .any, .partial, &results);
-    try expectEqual(1, results.items.len);
+    results = try resources.lookup("γυναῖκας· βλέψατε!", .any, .partial, &buffer);
+    try expectEqual(1, results.len);
 
-    results.clearRetainingCapacity();
-    try resources.lookup(gpa, "γυναῖκας· βλέψατε", .any, .partial, &results);
-    try expectEqual(1, results.items.len);
+    results = try resources.lookup("γυναῖκας· βλέψατε", .any, .partial, &buffer);
+    try expectEqual(1, results.len);
 }
 
 test "ignore_not_visible" {
@@ -1232,26 +1200,22 @@ test "ignore_not_visible" {
     defer resources.deinit(gpa);
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
-    var results: std.ArrayListUnmanaged(*Resource) = .empty;
-    defer results.deinit(gpa);
+    var buffer: [10]*Resource = undefined;
 
-    {
-        // The bean file must be ignored
-        try resources.search(gpa, &.{"ὄσπρια"}, .any, &results);
-        try expectEqual(0, results.items.len);
-        // The bean file must not be in the set of δύο
-        results.clearRetainingCapacity();
-        try resources.search(gpa, &.{"δύο"}, .any, &results);
-        try expectEqual(1, results.items.len);
-    }
+    // The bean file must be ignored
+    var results = try resources.search(&.{"ὄσπρια"}, .any, &buffer);
+    try expectEqual(0, results.len);
+    // The bean file must not be in the set of δύο
+
+    results = try resources.search(&.{"δύο"}, .any, &buffer);
+    try expectEqual(1, results.len);
 }
 
 test "font_lookup" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var results: std.ArrayListUnmanaged(*Resource) = .empty;
-    defer results.deinit(gpa);
+    var buffer: [10]*Resource = undefined;
 
     var resources: Resources = try .init(gpa);
     defer resources.deinit(gpa);
@@ -1259,20 +1223,21 @@ test "font_lookup" {
 
     {
         // Basic search
-        try resources.search(gpa, &.{"fakefont"}, .any, &results);
-        try expectEqual(1, results.items.len);
+        var results = try resources.search(&.{"fakefont"}, .any, &buffer);
+        try expectEqual(1, results.len);
+
         // Basic lookup
-        results.clearRetainingCapacity();
-        try resources.lookup(gpa, "fakefont", .any, .exact, &results);
-        try expectEqual(1, results.items.len);
+        results = try resources.lookup("fakefont", .any, .exact, &buffer);
+        try expectEqual(1, results.len);
+
         // Filtered lookup
-        var font = try resources.lookupOne(gpa, "fakefont", .any);
+        var font = try resources.lookupRandom("fakefont", .any);
         try expect(font != null);
         // Filtered lookup
-        font = try resources.lookupOne(gpa, "fakefont", .font);
+        font = try resources.lookupRandom("fakefont", .font);
         try expect(font != null);
         // Filtered lookup
-        font = try resources.lookupOne(gpa, "fakefont", .ttf);
+        font = try resources.lookupRandom("fakefont", .ttf);
         try expect(font != null);
     }
 }
@@ -1285,19 +1250,16 @@ test "file_with_full_stop" {
     defer resources.deinit(gpa);
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
-    var results: std.ArrayListUnmanaged(*Resource) = .empty;
-    defer results.deinit(gpa);
+    var buffer: [10]*Resource = undefined;
 
-    {
-        try resources.search(gpa, &.{"ἐστιν"}, .any, &results);
-        try expectEqual(1, results.items.len);
-        results.clearRetainingCapacity();
-        try resources.search(gpa, &.{"ἦν"}, .any, &results);
-        try expectEqual(1, results.items.len);
-        results.clearRetainingCapacity();
-        try resources.search(gpa, &.{ "ἐστιν", "ἦν" }, .any, &results);
-        try expectEqual(1, results.items.len);
-    }
+    var results = try resources.search(&.{"ἐστιν"}, .any, &buffer);
+    try expectEqual(1, results.len);
+
+    results = try resources.search(&.{"ἦν"}, .any, &buffer);
+    try expectEqual(1, results.len);
+
+    results = try resources.search(&.{ "ἐστιν", "ἦν" }, .any, &buffer);
+    try expectEqual(1, results.len);
 
     try expect(resources.by_sentence.index.get("ἐστιν. ἦν") != null);
     try expect(resources.by_word.index.get("ἦν") != null);
@@ -1338,45 +1300,39 @@ test "bundle" {
 
         try expectEqual(397, resources.by_sentence.index.count());
 
-        var results: ArrayListUnmanaged(*Resource) = .empty;
-        defer results.deinit(gpa);
+        var buffer: [10]*Resource = undefined;
 
-        try resources.lookup(gpa, "ὁ μικρὸς οἶκος", .any, .exact, &results);
-        try expectEqual(1, results.items.len);
-        try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
-        results.clearRetainingCapacity();
+        var results = try resources.lookup("ὁ μικρὸς οἶκος", .any, .exact, &buffer);
+        try expectEqual(1, results.len);
+        try expectEqual(base62.decode(u64, "p61AOD"), results[0].uid);
 
-        try resources.lookup(gpa, "ὁ μικρὸς οἶκος", .png, .exact, &results);
-        try expectEqual(1, results.items.len);
-        try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
-        results.clearRetainingCapacity();
+        results = try resources.lookup("ὁ μικρὸς οἶκος", .png, .exact, &buffer);
+        try expectEqual(1, results.len);
+        try expectEqual(base62.decode(u64, "p61AOD"), results[0].uid);
 
-        try resources.lookup(gpa, "ὁ μικρὸς οἶκος", .image, .exact, &results);
-        try expectEqual(1, results.items.len);
-        try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
-        results.clearRetainingCapacity();
+        results = try resources.lookup("ὁ μικρὸς οἶκος", .image, .exact, &buffer);
+        try expectEqual(1, results.len);
+        try expectEqual(base62.decode(u64, "p61AOD"), results[0].uid);
 
-        try resources.lookup(gpa, "ὁ μικρὸς οἶκος", .wav, .exact, &results);
-        try expectEqual(0, results.items.len);
-        results.clearRetainingCapacity();
+        results = try resources.lookup("ὁ μικρὸς οἶκος", .wav, .exact, &buffer);
+        try expectEqual(0, results.len);
 
-        try resources.lookup(gpa, "μικρὸς οἶκος", .any, .exact, &results);
-        try expectEqual(1, results.items.len);
-        try expectEqual(base62.decode(u64, "p61AOD"), results.items[0].uid);
-        results.clearRetainingCapacity();
+        results = try resources.lookup("μικρὸς οἶκος", .any, .exact, &buffer);
+        try expectEqual(1, results.len);
+        try expectEqual(base62.decode(u64, "p61AOD"), results[0].uid);
 
-        try resources.lookup(gpa, "myxml1", .any, .partial, &results);
-        try expectEqual(1, results.items.len);
-        try expectEqualStrings("myxml1", results.items[0].sentences.items[0]);
-        try expectEqualStrings("my xml 1", results.items[0].sentences.items[1]);
-
-        try resources.lookup(gpa, "myxml2", .any, .partial, &results);
-        try expectEqual(2, results.items.len);
-        try expectEqualStrings("myxml2", results.items[1].sentences.items[0]);
-        try expectEqualStrings("abcd", results.items[1].sentences.items[1]);
-        data1 = try resources.loadResource(gpa, io, results.items[0]);
+        results = try resources.lookup("myxml1", .any, .partial, &buffer);
+        try expectEqual(1, results.len);
+        try expectEqualStrings("myxml1", results[0].sentences.items[0]);
+        try expectEqualStrings("my xml 1", results[0].sentences.items[1]);
+        data1 = try resources.loadResource(gpa, io, results[0]);
         try expectEqual(1, resources.used_resources.?.count());
-        data2 = try resources.loadResource(gpa, io, results.items[1]);
+
+        results = try resources.lookup("myxml2", .any, .partial, &buffer);
+        try expectEqual(1, results.len);
+        try expectEqualStrings("myxml2", results[0].sentences.items[0]);
+        try expectEqualStrings("abcd", results[0].sentences.items[1]);
+        data2 = try resources.loadResource(gpa, io, results[0]);
         try expectEqual(2, resources.used_resources.?.count());
 
         try resources.saveBundle(
@@ -1398,30 +1354,33 @@ test "bundle" {
         resources.used_resources = .empty;
         try resources.loadBundle(io, TEST_BUNDLE_FILENAME);
 
-        var results: ArrayListUnmanaged(*Resource) = .empty;
-        defer results.deinit(gpa);
+        var buffer: [10]*Resource = undefined;
 
-        try resources.lookup(gpa, "1122", .any, .partial, &results);
-        try expectEqual(1, results.items.len);
-        try resources.lookup(gpa, "2233", .any, .partial, &results);
-        try expectEqual(2, results.items.len);
+        var results = try resources.lookup("1122", .any, .partial, &buffer);
+        try expectEqual(1, results.len);
+        const first = results[0];
+
+        results = try resources.lookup("2233", .any, .partial, &buffer);
+        try expectEqual(1, results.len);
+        const second = results[0];
+
         // abcd is already in the results list, so no new results should be added.
-        try resources.lookup(gpa, "abcd", .any, .partial, &results);
-        try expectEqual(2, results.items.len);
+        results = try resources.lookup("abcd", .any, .partial, &buffer);
+        try expectEqual(1, results.len);
+        try expectEqual(second.uid, results[0].uid);
 
-        try expectEqualStrings("myxml1", results.items[0].sentences.items[0]);
-        try expectEqualStrings("myxml2", results.items[1].sentences.items[0]);
-        data1b = try resources.loadResource(gpa, io, results.items[0]);
+        try expectEqualStrings("myxml1", first.sentences.items[0]);
+        try expectEqualStrings("myxml2", second.sentences.items[0]);
+        data1b = try resources.loadResource(gpa, io, first);
         try expectEqual(1, resources.used_resources.?.count());
-        data2b = try resources.loadResource(gpa, io, results.items[1]);
+        data2b = try resources.loadResource(gpa, io, second);
         try expectEqual(2, resources.used_resources.?.count());
 
-        results.clearRetainingCapacity();
-        try resources.lookup(gpa, "1122.", .any, .partial, &results);
-        try expectEqual(1, results.items.len);
-        results.clearRetainingCapacity();
-        try resources.lookup(gpa, "1122·", .any, .partial, &results);
-        try expectEqual(1, results.items.len);
+        results = try resources.lookup("1122.", .any, .partial, &buffer);
+        try expectEqual(1, results.len);
+
+        results = try resources.lookup("1122·", .any, .partial, &buffer);
+        try expectEqual(1, results.len);
     }
     defer gpa.free(data1b);
     defer gpa.free(data2b);
@@ -1446,7 +1405,7 @@ const err = std.log.err;
 const debug = std.log.debug;
 const eql = @import("std").mem.eql;
 const Allocator = std.mem.Allocator;
-const Normalize = @import("Normalize");
+pub const Normalize = @import("Normalize");
 
 pub const UniqueWords = @import("UniqueWords.zig");
 pub const random = @import("random.zig");

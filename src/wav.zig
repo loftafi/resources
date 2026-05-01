@@ -156,7 +156,7 @@ pub const Wav = struct {
             engine.wav = null;
         }
         wav.data = data;
-        try wav.read_metadata();
+        try wav.readMetadata();
         engine.wav = wav;
         try wav.read_audio(allocator, engine);
     }
@@ -225,7 +225,7 @@ pub const Wav = struct {
         try w.writeByte(value);
     }
 
-    pub fn read_metadata(wav: *Wav) Error!void {
+    pub fn readMetadata(wav: *Wav) Error!void {
         wav.chunkID = try wav.next_slice(4);
         if (!std.mem.eql(u8, wav.chunkID, "RIFF"))
             return Error.not_wav_file;

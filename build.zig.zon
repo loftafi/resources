@@ -1,6 +1,6 @@
 .{
     .name = .resources,
-    .version = "1.3.8",
+    .version = "2.0.0",
     .fingerprint = 0xef66ebae23b04127,
     .minimum_zig_version = "0.16.0",
 
@@ -14,8 +14,8 @@
             .hash = "zeit-0.6.0-5I6bk2i6AgDYOczMsuuKcM7NYuOoTtxWEsZDsg8kSTiv",
         },
         .zg = .{
-            .url = "git+https://codeberg.org/loftafi/zg-16.git#f2243a83dc0f46100ff60f92d87c83c6fc143fb1",
-            .hash = "zg-0.15.4-oGqU3NVKtALBC0oT3XfERGB0nza4nfK5M1cH7uVl5C5J",
+            .url = "git+https://codeberg.org/atman/zg#3f95a1625abf08c3c2067053f32e33e3c2da6135",
+            .hash = "zg-0.15.3-oGqU3BaetgIIRXXxyGsXtvmYgi1XLf4HHvHswqsgLo-Y",
         },
         .zstbi = .{
             .url = "git+https://github.com/zaddok/zstbi.git#456b7620bf8036d29454d98cb506e0428e6510ae",
