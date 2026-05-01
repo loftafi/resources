@@ -99,11 +99,11 @@ _ = bucket.loadBundle("/path/to/bundle.bd") catch |e|;
 
 To load the contents of file, first get the `Resource` record,
 then load the data for that resource. It is important to note
-that `lookupOne` can remember that this resource was loaded by
+that `lookupRandom` can remember that this resource was loaded by
 adding it to the `resources.used_resources`
 
 ```zig
-if (try bucket.lookupOne("payer1", .jpg, gpa)) |image| {
+if (try bucket.lookupRandom("payer1", .jpg)) |image| {
     const data = bucket.loadResource(io, image, gpa) catch |e| switch(e) {
         error.OutOfMemory => return error.OutOfMemory,
         error.FileNotFound => return error.ResourceNotFound,
@@ -117,15 +117,14 @@ name `lookup`, i.e:
 
 ```zig
 // Search for a resource by filename or word in a filename
-var results: std.ArrayListUnmanaged(*Resource) = .empty;
-defer results.deinit(allocator);
-try bucket.search(keywords.items, .any, &results);
+var buffer: [10]*Resource = undefined;
+var results = try bucket.search(keywords.items, .any, &buffer);
 for (results.items) |resource| {
     std.debug.print(" {d}  {s}\n", .{resource.uid, sentence});
 }
 ```
 
-During development, after all of the `lookupOne` calls, you may optionally
+During development, after all of the `lookupRandom` calls, you may optionally
 call `saveBundle` to write a bundle file containing all of the resources that
 were loaded while the game was running.
 
