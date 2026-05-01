@@ -92,10 +92,10 @@ pub fn main(init: std.process.Init) !void {
         var match: Resources.Match = .unaccented;
         var keyword: ?[]const u8 = null;
 
-        var resources = try Resources.init(init.arena.allocator());
-        defer resources.deinit(init.arena.allocator());
+        var bucket = try Resources.init(init.arena.allocator());
+        defer bucket.deinit(init.arena.allocator());
 
-        try load_resource_set(init.gpa, io, &resources, &config);
+        try load_resource_set(init.gpa, io, &bucket, &config);
 
         if (args.next()) |arg| {
             if (std.ascii.eqlIgnoreCase("exact", arg))
@@ -107,7 +107,7 @@ pub fn main(init: std.process.Init) !void {
             else
                 keyword = arg;
         } else {
-            try resdump(init.io, &resources);
+            try resdump(init.io, &bucket);
             return;
         }
 
@@ -116,20 +116,19 @@ pub fn main(init: std.process.Init) !void {
                 keyword = arg;
             }
             if (keyword == null) {
-                try resdump(init.io, &resources);
+                try resdump(init.io, &bucket);
                 //std.log.err("specify search keyword.", .{});
                 return;
             }
         }
 
-        var results: ArrayListUnmanaged(*Resource) = .empty;
-        defer results.deinit(init.gpa);
-        resources.lookup(init.gpa, keyword.?, file_type_filter, match, &results) catch |e| {
-            err("Lookup resources from {s} failed. {any}", .{ config.repo, e });
-            return Resources.Error.FailedReadingRepo;
-        };
+        var buffer: [5000]*Resource = undefined;
 
-        try show_search_results(io, results.items, match);
+        if (keyword) |value| {
+            const sentence = try resources.Normalize.nfc(init.gpa, value);
+            const results = try bucket.lookup(sentence.slice, file_type_filter, match, &buffer);
+            try show_search_results(io, results, match);
+        }
 
         return;
     }
@@ -151,10 +150,10 @@ pub fn main(init: std.process.Init) !void {
             return;
         }
 
-        var resources = try Resources.init(init.arena.allocator());
-        defer resources.deinit(init.arena.allocator());
+        var bucket = try Resources.init(init.arena.allocator());
+        defer bucket.deinit(init.arena.allocator());
 
-        try load_resource_set(init.gpa, io, &resources, &config);
+        try load_resource_set(init.gpa, io, &bucket, &config);
 
         const options: SaveOptions = .{
             .image = .jpg,
@@ -163,7 +162,7 @@ pub fn main(init: std.process.Init) !void {
             .normalise_audio = true,
         };
 
-        make_resource_bundle(init.gpa, io, &resources, &options, &config, bundle_name.?) catch |e| {
+        make_resource_bundle(init.gpa, io, &bucket, &options, &config, bundle_name.?) catch |e| {
             print("Error making resource bundle. {any}\n", .{e});
         };
         return;
@@ -173,7 +172,7 @@ pub fn main(init: std.process.Init) !void {
     print("usage: resources [-b directory] [-t any] add|search|bundle|help\n\n", .{});
 }
 
-pub fn resdump(io: std.Io, resources: *Resources) std.Io.Writer.Error!void {
+pub fn resdump(io: std.Io, bucket: *Resources) std.Io.Writer.Error!void {
     var write: [1024]u8 = undefined;
     var out: std.Io.File.Writer = .init(.stdout(), io, &write);
     defer out.flush() catch {};
@@ -181,7 +180,7 @@ pub fn resdump(io: std.Io, resources: *Resources) std.Io.Writer.Error!void {
 
     var count: usize = 0;
     var size: usize = 0;
-    var i = resources.by_uid.valueIterator();
+    var i = bucket.by_uid.valueIterator();
     while (i.next()) |resource| {
         if (!file_type_filter.matches(resource.*.resource)) continue;
 
@@ -207,7 +206,7 @@ pub fn resdump(io: std.Io, resources: *Resources) std.Io.Writer.Error!void {
 
 pub fn show_search_results(
     io: std.Io,
-    results: []*Resource,
+    results: []const *Resource,
     match: ?Resources.Match,
 ) std.Io.Writer.Error!void {
     var size: usize = 0;
@@ -242,19 +241,19 @@ pub fn show_search_results(
     try stdout.print("\n\n", .{});
 }
 
-pub fn load_resource_set(gpa: Allocator, io: std.Io, resources: *Resources, config: *const Config) Resources.Error!void {
+pub fn load_resource_set(gpa: Allocator, io: std.Io, bucket: *Resources, config: *const Config) Resources.Error!void {
     if (source_bundle != null) {
-        _ = resources.loadBundle(io, source_bundle.?) catch |e| {
+        _ = bucket.loadBundle(io, source_bundle.?) catch |e| {
             err("Read resources from bundle {s} failed. {any}", .{ source_bundle.?, e });
             return Resources.Error.FailedReadingRepo;
         };
     } else if (source_dir != null) {
-        _ = resources.loadDirectory(gpa, io, source_dir.?, null) catch |e| {
+        _ = bucket.loadDirectory(gpa, io, source_dir.?, null) catch |e| {
             err("Read resources from {s} failed. {any}", .{ source_dir.?, e });
             return Resources.Error.FailedReadingRepo;
         };
     } else {
-        _ = resources.loadDirectory(gpa, io, config.repo, null) catch |e| {
+        _ = bucket.loadDirectory(gpa, io, config.repo, null) catch |e| {
             err("Read resources from {s} failed. {any}", .{ config.repo, e });
             return Resources.Error.FailedReadingRepo;
         };
@@ -294,16 +293,16 @@ fn load_resources(
     result: *?*Resources,
 ) void {
     info("Reading resources: {s}", .{config.repo});
-    var resources = Resources.create(arena.*.allocator()) catch |e| {
+    var bucket = Resources.create(arena.*.allocator()) catch |e| {
         err("Read resources from {s} failed. {any}", .{ config.repo, e });
         return;
     };
-    _ = resources.loadDirectory(io, config.repo, null) catch |e| {
+    _ = bucket.loadDirectory(io, config.repo, null) catch |e| {
         err("Read resources from {s} failed. {any}", .{ config.repo, e });
         return;
     };
     info("Read resources: {s} ({d} items)", .{ config.repo, resources.by_uid.count() });
-    result.* = resources;
+    result.* = bucket;
 }
 
 /// Read all bytes of a file into memory. Returns a result that must be freed.
@@ -415,12 +414,13 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 const zeit = @import("zeit");
 
-const base62 = @import("resources").base62;
-const random = @import("resources").random;
-const Resources = @import("resources").Resources;
+const resources = @import("resources");
+const base62 = resources.base62;
+const random = resources.random;
+const Resources = resources.Resources;
+const Resource = resources.Resource;
 const SaveOptions = Resources.SaveOptions;
-const Resource = @import("resources").Resource;
-const SearchCategory = @import("resources").Resources.SearchCategory;
+const SearchCategory = Resources.SearchCategory;
 
 const Config = @import("config.zig").Config;
 

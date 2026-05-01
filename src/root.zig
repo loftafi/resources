@@ -7,6 +7,7 @@
 
 pub const Resources = @import("Resources.zig");
 pub const Resource = @import("Resource.zig");
+pub const Normalize = Resources.Normalize;
 pub const Size = Resources.Size;
 pub const Type = @import("Type.zig").Type;
 pub const ScaleMode = @import("export_image.zig").ScaleMode;

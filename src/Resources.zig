@@ -678,7 +678,7 @@ pub fn lookup(
     category: SearchCategory,
     match: Match,
     buffer: []*Resource,
-) (error{OutOfMemory} || Error)![]const *Resource {
+) Error![]const *Resource {
     if (sentence.len == 0) return &.{};
 
     const info = self.normaliser.normalise(sentence) catch |f| {
@@ -776,7 +776,7 @@ pub fn lookupRandom(
     self: *Resources,
     sentence: []const u8,
     category: SearchCategory,
-) (error{OutOfMemory} || Error)!?*Resource {
+) Error!?*Resource {
     if (sentence.len == 0) {
         debug("lookupRandom() called with empty sentence.", .{});
         return null;
