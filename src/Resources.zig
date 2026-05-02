@@ -667,7 +667,7 @@ pub fn search(
 /// searching for a single word inside a filename, use `search()` for
 /// single word keyword search.
 pub fn lookup(
-    self: *Resources,
+    self: *const Resources,
     sentence: []const u8,
     category: SearchCategory,
     match: Match,
@@ -768,7 +768,7 @@ pub fn lookup(
 /// Keywords _must_ be normalised with `resources.Normalize.nfc()`
 /// if input text is not already normalised.
 pub fn lookupRandom(
-    self: *Resources,
+    self: *const Resources,
     sentence: []const u8,
     category: SearchCategory,
 ) Error!?*Resource {
