@@ -51,9 +51,6 @@ folder: []const u8 = "",
 /// If `loadBundle` was used, this is the path to the bundle.
 bundle_files: std.ArrayListUnmanaged([]const u8) = .empty,
 
-/// A simple library used to normalise Ancient Greek text.
-normaliser: Normaliser,
-
 /// When not null, every `Resource` loaded with `loadResource` is
 /// placed into this list.
 used_resources: ?std.AutoHashMapUnmanaged(u64, *const Resource),
@@ -66,7 +63,6 @@ pub fn init(gpa: Allocator) (Allocator.Error)!Resources {
         .by_uid = .empty,
         .by_word = .empty,
         .by_sentence = .empty,
-        .normaliser = .empty,
         .folder = "",
         .bundle_files = .empty,
         .used_resources = null,
@@ -74,9 +70,7 @@ pub fn init(gpa: Allocator) (Allocator.Error)!Resources {
 }
 
 /// Cleanup the arena and any short lived objects used by this struct.
-pub fn deinit(self: *Resources, gpa: Allocator) void {
-    self.normaliser.deinit(gpa);
-
+pub fn deinit(self: *Resources, _: Allocator) void {
     if (self.used_resources) |*manifest|
         manifest.deinit(self.arena.allocator());
 
@@ -681,7 +675,8 @@ pub fn lookup(
 ) Error![]const *Resource {
     if (sentence.len == 0) return &.{};
 
-    const info = self.normaliser.normalise(sentence) catch |f| {
+    var n: Normaliser.Keywords(Normaliser.max_word_size) = undefined;
+    const info = n.normalise(sentence) catch |f| {
         if (f == error.EmptyWord) return error.QueryEmpty;
         if (f == error.WordTooLong) return error.QueryTooLong;
         if (f == error.Overflow) return error.QueryTooLong;

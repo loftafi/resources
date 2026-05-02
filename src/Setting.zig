@@ -10,12 +10,12 @@ value: []const u8,
 /// formatted setting line could not be read.
 pub fn next(parser: *Parser) error{InvalidUtf8}!?Setting {
     _ = parser.skip_whitespace_and_lines();
-    const c = try parser.next_unicode();
+    const c = try parser.nextUnicode();
     if (c == 0) return null;
 
     const d = Type.parse(c);
     if (d == .unknown) {
-        const text = parser.read_until_eol(); // Read until cr,lf,eof, or ~
+        const text = parser.readUntilEol(); // Read until cr,lf,eof, or ~
         return .{
             .setting = d,
             .value = text,
@@ -27,7 +27,7 @@ pub fn next(parser: *Parser) error{InvalidUtf8}!?Setting {
         return null;
     }
     _ = parser.skip_whitespace_and_lines();
-    const text = parser.read_until_eol(); // Read until cr,lf,eof, or ~
+    const text = parser.readUntilEol(); // Read until cr,lf,eof, or ~
     return .{
         .setting = d,
         .value = text,
