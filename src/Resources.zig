@@ -54,6 +54,7 @@ bundle_files: std.ArrayListUnmanaged([]const u8) = .empty,
 /// When not null, every `Resource` loaded with `loadResource` is
 /// placed into this list.
 used_resources: ?std.AutoHashMapUnmanaged(u64, *const Resource),
+used_resources_rwlock: std.Io.RwLock,
 
 /// Create an empty file bundle including an internal arena allocator.
 /// Follow up with either `loadDirectory()` or `loadBundle()`.
@@ -66,6 +67,7 @@ pub fn init(gpa: Allocator) (Allocator.Error)!Resources {
         .folder = "",
         .bundle_files = .empty,
         .used_resources = null,
+        .used_resources_rwlock = .init,
     };
 }
 
@@ -97,6 +99,8 @@ pub fn deinit(self: *Resources, _: Allocator) void {
 }
 
 /// Load the table of contents of a resource bundle into memory.
+///
+/// Adding resources is not thread safe, so `loadBundle` is not  thread safe.
 pub fn loadBundle(
     self: *Resources,
     io: std.Io,
@@ -497,6 +501,8 @@ fn header_contains(items: []BundleResource, uid: u64) bool {
 /// Load the full list of usable files inside the `folder` along with
 /// any associated metadata files so that each file can be searched for
 /// and loaded.
+///
+/// Adding resources is not thread safe, so `loadBundle` is not  thread safe.
 pub fn loadDirectory(
     self: *Resources,
     gpa: Allocator,
@@ -510,15 +516,19 @@ pub fn loadDirectory(
     Utf8OverlongEncoding,
     Utf8EncodesSurrogateHalf,
     Utf8CodepointTooLarge,
-} || std.Io.File.OpenError || std.Io.File.StatError || std.fmt.BufPrintError)!bool {
+} || std.Io.File.OpenError || std.Io.File.StatError || std.fmt.BufPrintError || std.Io.Cancelable)!bool {
     var dir = std.Io.Dir.cwd().openDir(io, folder, .{ .iterate = true }) catch |e| {
         log.warn("Load directory {s} failed. Error: {any}", .{ folder, e });
         return false;
     };
     defer dir.close(io);
 
-    if (self.used_resources == null)
-        self.used_resources = .empty;
+    {
+        try self.used_resources_rwlock.lock(io);
+        defer self.used_resources_rwlock.unlock(io);
+        if (self.used_resources == null)
+            self.used_resources = .empty;
+    }
 
     self.folder = try self.arena.allocator().dupeZ(u8, folder);
 
@@ -799,9 +809,13 @@ pub fn loadResource(
     gpa: Allocator,
     io: std.Io,
     resource: *const Resource,
-) (Resources.Error || Allocator.Error || std.Io.File.OpenError || std.Io.File.StatError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.LimitedAllocError)![]const u8 {
-    if (self.used_resources) |*manifest| {
-        try manifest.put(self.arena.allocator(), resource.uid, resource);
+) (Resources.Error || Allocator.Error || std.Io.File.OpenError || std.Io.File.StatError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.LimitedAllocError || std.Io.Cancelable)![]const u8 {
+    {
+        try self.used_resources_rwlock.lock(io);
+        defer self.used_resources_rwlock.unlock(io);
+        if (self.used_resources) |*manifest| {
+            try manifest.put(self.arena.allocator(), resource.uid, resource);
+        }
     }
 
     // If the file was found in a resource bundle, a byte offset
@@ -1030,7 +1044,7 @@ fn ignore_file(text: []const u8) bool {
     return false;
 }
 
-test "read_extension" {
+test read_extension {
     try expectEqualStrings("jpg", read_extension("fish.jpg"));
     try expectEqualStrings("js", read_extension("fish.js"));
     try expectEqualStrings("", read_extension("fish"));
@@ -1038,7 +1052,7 @@ test "read_extension" {
     try expectEqualStrings("", read_extension("fish.jpgabcdefg"));
 }
 
-test "resource init" {
+test init {
     const gpa = std.testing.allocator;
 
     var resources: Resources = try .init(gpa);
@@ -1104,18 +1118,8 @@ test "search resources" {
     defer resources.deinit(gpa);
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
-    var keywords: std.ArrayListUnmanaged([]const u8) = .empty;
-    defer keywords.deinit(gpa);
-    try keywords.append(gpa, "ἄγγελος");
-
     var buffer: [10]*Resource = undefined;
-
-    //var i = resources.by_sentence.index.keyIterator();
-    //while (i.next()) |key| {
-    //    err("by_sentence key = {s}", .{key.*});
-    //}
-
-    var results = try resources.search(keywords.items, .any, &buffer);
+    var results = try resources.search(&.{"ἄγγελος"}, .any, &buffer);
     try expectEqual(0, results.len);
 
     // Test files have this exact string

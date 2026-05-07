@@ -488,6 +488,7 @@ test "addSentence" {
 
 test "wav_filename" {
     const gpa = std.testing.allocator;
+
     var resources: Resources = try .init(gpa);
     defer resources.deinit(gpa);
 
