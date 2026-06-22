@@ -9,7 +9,7 @@ pub const Resource = @This();
 
 uid: u64,
 visible: bool,
-date: ?[]const u8,
+date: usize,
 copyright: ?[]const u8,
 link: ?[]const u8,
 sentences: ArrayListUnmanaged([]const u8),
@@ -28,7 +28,7 @@ pub const empty: Resource = .{
     .uid = 0,
     .visible = true,
     .resource = .unknown,
-    .date = null,
+    .date = 0,
     .copyright = null,
     .link = null,
     .sentences = .empty,
@@ -63,7 +63,6 @@ pub fn deinit(self: *Resource, allocator: Allocator) void {
             allocator.free(self.filename.?);
 
     if (self.copyright != null) allocator.free(self.copyright.?);
-    if (self.date != null) allocator.free(self.date.?);
 
     self.* = undefined;
 }
@@ -167,7 +166,7 @@ fn readMetadata(self: *Resource, allocator: Allocator, data: []const u8) (error{
             's', 'S' => try self.addSentence(allocator, value),
             'c', 'C' => self.copyright = try allocator.dupe(u8, value),
             'v', 'V' => self.visible = is_true(value),
-            'd', 'D' => self.date = try allocator.dupe(u8, value),
+            'd', 'D' => self.date = std.fmt.parseInt(usize, value, 10) catch return error.ReadMetadataFailed,
             'l', 'L' => self.link = try allocator.dupe(u8, value),
             'i', 'I' => {
                 if (value.len > max_uid_length) {
@@ -564,16 +563,14 @@ test "readMetadata" {
         defer r.deinit(gpa);
         try r.readMetadata(gpa, "v:y\nd:1010\n");
         try expectEqual(true, r.visible);
-        try expect(r.date != null);
-        try expectEqualStrings("1010", r.date.?);
+        try expectEqual(1010, r.date);
     }
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
         try r.readMetadata(gpa, "v:n\nd:1010");
         try expectEqual(false, r.visible);
-        try expect(r.date != null);
-        try expectEqualStrings("1010", r.date.?);
+        try expectEqual(1010, r.date);
     }
     {
         var r: Resource = .empty;
@@ -583,21 +580,22 @@ test "readMetadata" {
         try expect(r.copyright != null);
         try expectEqualStrings("bob", r.copyright.?);
         try expectEqual(6538201, r.uid);
+        try expectEqual(0, r.date);
     }
 
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.readMetadata(gpa, "v: 0 \nd:1010 ");
+        try r.readMetadata(gpa, "v: 0 \nd:20260102030405 ");
         try expectEqual(false, r.visible);
-        try expectEqualStrings("1010", r.date.?);
+        try expectEqual(20260102030405, r.date);
     }
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
         try r.readMetadata(gpa, "s: fish \rs:cat dog\nv: true \nd:1010 ");
         try expectEqual(true, r.visible);
-        try expectEqualStrings("1010", r.date.?);
+        try expectEqual(1010, r.date);
         try expectEqual(2, r.sentences.items.len);
         try expectEqualStrings("fish", r.sentences.items[0]);
         try expectEqualStrings("cat dog", r.sentences.items[1]);

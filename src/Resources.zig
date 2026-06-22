@@ -1,10 +1,3 @@
-//! This zig module supports collecting, searching, and bundling resources
-//! into a bundle for distribution. The most common use case for this is
-//! a game that wishes to pack all game reosurces into an individual bundle
-//! file. Attach metadata such as copyright information and an optional link
-//! to the source of the original file to make copyright and licence
-//! management easier.
-
 /// `Resources` holds a collection of `Resource` objects. Each `Resource`
 /// represents a file. `Resource` objects are loaded from a _directory_ or a
 /// resource _bundle_. A `Resource` record describes not just a file, but
@@ -774,8 +767,11 @@ pub fn lookup(
 }
 
 /// Return a resource where the filename or attached sentence
-/// exactly matches. Undecided if this should be case-insensitive.
-/// Keywords _must_ be normalised with `resources.Normalize.nfc()`
+/// exactly matches. If more than one resources matches, return
+/// one of the matches at random.
+///
+/// Undecided if this should be case-insensitive.
+/// `sentence` _must_ be normalised with `resources.Normalize.nfc()`
 /// if input text is not already normalised.
 pub fn lookupRandom(
     self: *const Resources,
@@ -799,6 +795,48 @@ pub fn lookupRandom(
 
     const choose = random.random(results.len);
     return results[choose];
+}
+
+/// Return a resource where the filename or attached sentence
+/// exactly matches. If more than one resource matches, return the
+/// newest record according to the metadata date. Resources without
+/// a date are considered the oldest.
+///
+/// Undecided if this should be case-insensitive.
+/// `sentence` _must_ be normalised with `resources.Normalize.nfc()`
+/// if input text is not already normalised.
+pub fn lookupNewest(
+    self: *const Resources,
+    sentence: []const u8,
+    category: SearchCategory,
+) Error!?*Resource {
+    if (sentence.len == 0) {
+        debug("lookupRandom() called with empty sentence.", .{});
+        return null;
+    }
+
+    var buffer: [20]*Resource = undefined;
+    const results = try self.lookup(sentence, category, .exact, &buffer);
+    if (results.len == 0) {
+        debug("lookupRandom() name='{s}' category={t} found no results.", .{
+            sentence,
+            category,
+        });
+        return null;
+    }
+    var newest: ?*Resource = null;
+
+    for (results) |result| {
+        if (newest == null) {
+            newest = result;
+            continue;
+        }
+        if (result.date == 0) continue;
+        if (newest.?.date == 0) newest = result;
+        if (newest.?.date < result.date) newest = result;
+    }
+
+    return newest;
 }
 
 /// Return the binary data of a resource. Depending on where the file
@@ -1241,6 +1279,36 @@ test "font_lookup" {
     }
 }
 
+test "lookup_newest" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
+    var resources: Resources = try .init(gpa);
+    defer resources.deinit(gpa);
+    _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
+
+    {
+        // Filtered lookup
+        var resource = try resources.lookupNewest("edmond", .any);
+        try expect(resource != null);
+        try expectEqual(base62.decode(u64, "11aba"), resource.?.uid);
+
+        // Filtered lookup
+        resource = try resources.lookupNewest("edmond", .font);
+        try expect(resource == null);
+
+        // Filtered lookup
+        resource = try resources.lookupNewest("edmond", .xml);
+        try expect(resource != null);
+        try expectEqual(base62.decode(u64, "1122"), resource.?.uid);
+
+        // Filtered lookup
+        resource = try resources.lookupNewest("edmond", .jpg);
+        try expect(resource != null);
+        try expectEqual(base62.decode(u64, "11aba"), resource.?.uid);
+    }
+}
+
 test "file_with_full_stop" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
@@ -1297,7 +1365,7 @@ test "bundle" {
         defer resources.deinit(gpa);
         _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
-        try expectEqual(397, resources.by_sentence.index.count());
+        try expectEqual(402, resources.by_sentence.index.count());
 
         var buffer: [10]*Resource = undefined;
 
