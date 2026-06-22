@@ -62,8 +62,6 @@ pub fn deinit(self: *Resource, allocator: Allocator) void {
         if (self.filename != null)
             allocator.free(self.filename.?);
 
-    if (self.copyright != null) allocator.free(self.copyright.?);
-
     self.* = undefined;
 }
 
@@ -77,6 +75,7 @@ pub fn load(
     filename: []const u8,
     file_name: []const u8,
     file_type: Type,
+    string_bucket: *StringBucket,
 ) (error{OutOfMemory} || Resources.Error || std.Io.File.StatError || std.Io.File.OpenError || std.fmt.BufPrintError)!void {
     if (filename.len > 0) self.filename = try arena.dupeZ(u8, filename);
 
@@ -92,7 +91,7 @@ pub fn load(
 
     // Check if there is a metadata file to load.
     var buf: [max_filename_length]u8 = undefined;
-    const metadata_file = std.fmt.bufPrint(&buf, "{s}.txt", .{remove_extension(filename)}) catch return error.FilenameTooLong;
+    const metadata_file = std.fmt.bufPrint(&buf, "{s}.txt", .{removeExtension(filename)}) catch return error.FilenameTooLong;
     const data = load_file_bytes(gpa, io, metadata_file) catch |e| {
         if (e == error.FileNotFound) {
             // If no metadata file exists, default to visible
@@ -116,7 +115,7 @@ pub fn load(
         };
     }
 
-    return self.readMetadata(arena, data_nfc.slice);
+    return self.readMetadata(arena, data_nfc.slice, string_bucket);
 }
 
 /// Form a uid from the name of the file and the size of the file. Not
@@ -137,25 +136,30 @@ fn hash_uid(
 }
 
 /// Update fields of this object using metadata fileds in a text file.
-fn readMetadata(self: *Resource, allocator: Allocator, data: []const u8) (error{ InvalidResourceUID, ReadMetadataFailed, MetadataMissing } || Allocator.Error)!void {
+fn readMetadata(
+    self: *Resource,
+    allocator: Allocator,
+    data: []const u8,
+    string_bucket: *StringBucket,
+) (error{ InvalidResourceUID, ReadMetadataFailed, MetadataMissing } || Allocator.Error)!void {
     var text = data;
     while (text.len > 0) {
 
         // Read the field
-        while (text.len > 0 and is_whitespace(text[0])) {
+        while (text.len > 0 and isWhitespace(text[0])) {
             text = text[1..];
         }
         if (text.len == 0) break;
         const field = text[0];
         text = text[1..];
-        while (text.len > 0 and (is_whitespace(text[0]) or text[0] == ':' or text[0] == '=')) {
+        while (text.len > 0 and (isWhitespace(text[0]) or text[0] == ':' or text[0] == '=')) {
             text = text[1..];
         }
 
         var eov: usize = 0;
         var end_candidate: usize = 0;
         while (text.len > eov and text[eov] != '\n' and text[eov] != '\r') {
-            if (!is_whitespace(text[eov])) end_candidate = eov + 1;
+            if (!isWhitespace(text[eov])) end_candidate = eov + 1;
             eov += 1;
         }
         const value = text[0..end_candidate];
@@ -164,8 +168,8 @@ fn readMetadata(self: *Resource, allocator: Allocator, data: []const u8) (error{
 
         switch (field) {
             's', 'S' => try self.addSentence(allocator, value),
-            'c', 'C' => self.copyright = try allocator.dupe(u8, value),
-            'v', 'V' => self.visible = is_true(value),
+            'c', 'C' => self.copyright = try string_bucket.add(value),
+            'v', 'V' => self.visible = isTrue(value),
             'd', 'D' => self.date = std.fmt.parseInt(usize, value, 10) catch return error.ReadMetadataFailed,
             'l', 'L' => self.link = try allocator.dupe(u8, value),
             'i', 'I' => {
@@ -187,7 +191,7 @@ fn readMetadata(self: *Resource, allocator: Allocator, data: []const u8) (error{
 }
 
 /// Attach a sentence to this resource, ensuring that no duplicate
-/// sentences are added. If non significant punctuation is found at the
+/// sentences are added. If non-significant punctuation is found at the
 /// end of this sentence, also attach a non punctuated version.
 fn addSentence(
     self: *Resource,
@@ -206,7 +210,7 @@ fn addSentence(
     if (!found)
         try self.sentences.append(allocator, try allocator.dupe(u8, text));
 
-    if (sentence_trim(text)) |trim| {
+    if (trimSentence(text)) |trim| {
         if (trim.len > 0) {
             found = false;
             for (self.sentences.items) |i| {
@@ -221,18 +225,18 @@ fn addSentence(
     }
 }
 
-fn is_whitespace(c: u8) bool {
+fn isWhitespace(c: u8) bool {
     return c == ' ' or c == '\n' or c == '\r' or c == '\t';
 }
 
-fn is_true(text: []const u8) bool {
+fn isTrue(text: []const u8) bool {
     return std.ascii.eqlIgnoreCase(text, "true") or
         std.ascii.eqlIgnoreCase(text, "yes") or
         std.ascii.eqlIgnoreCase(text, "y") or
         std.ascii.eqlIgnoreCase(text, "1");
 }
 
-fn remove_extension(path: []const u8) []const u8 {
+fn removeExtension(path: []const u8) []const u8 {
     var end = path.len;
     while (end > 0) {
         if (end + 6 < path.len) break;
@@ -256,7 +260,7 @@ fn extract_wav_name(text: []const u8) ?[]const u8 {
         if (text[i] == '.') last_dot = i;
     }
     var end = if (last_dot != null) last_dot.? else text.len;
-    while (end > 0 and is_digit(text[end - 1])) end = end - 1;
+    while (end > 0 and isDigit(text[end - 1])) end = end - 1;
 
     var first_tilde: ?usize = null;
     for (0..end) |i| {
@@ -265,7 +269,7 @@ fn extract_wav_name(text: []const u8) ?[]const u8 {
             first_tilde = i + 1;
         }
     }
-    if (first_tilde != null and first_tilde.? < text.len and is_digit(text[first_tilde.?])) return null;
+    if (first_tilde != null and first_tilde.? < text.len and isDigit(text[first_tilde.?])) return null;
     var start = if (first_tilde != null) first_tilde.? else 0;
 
     for (start..end) |i| {
@@ -277,37 +281,25 @@ fn extract_wav_name(text: []const u8) ?[]const u8 {
     return text[start..end];
 }
 
-inline fn is_digit(c: u8) bool {
+inline fn isDigit(c: u8) bool {
     return c >= '0' and c <= '9';
 }
 
-/// Return a slice of a sentence with trailing punctuation removed. This
-/// allows searches to find a non punctuated version of the sentence.
-pub fn sentence_trim(sentence: []const u8) ?[]const u8 {
+/// Remove trailing punctuation that doesn't have meaning impliations.
+/// i.e. remove full stop and comma, but leave question mark.
+///
+/// There may be an argument for keeping exclamation mark.
+pub fn trimSentence(sentence: []const u8) ?[]const u8 {
     var trimmed: []const u8 = sentence;
     while (true) {
-        if (std.mem.endsWith(u8, trimmed, ".")) {
-            trimmed.len -= ".".len;
+        const last = trimmed[trimmed.len - 1];
+
+        if (last == '.' or last == ',' or last == '!' or last == ':' or last == ';') {
+            trimmed.len -= 1;
             continue;
         }
         if (std.mem.endsWith(u8, trimmed, "·")) {
             trimmed.len -= "·".len;
-            continue;
-        }
-        if (std.mem.endsWith(u8, trimmed, ",")) {
-            trimmed.len -= ",".len;
-            continue;
-        }
-        if (std.mem.endsWith(u8, trimmed, "!")) {
-            trimmed.len -= "!".len;
-            continue;
-        }
-        if (std.mem.endsWith(u8, trimmed, ":")) {
-            trimmed.len -= ":".len;
-            continue;
-        }
-        if (std.mem.endsWith(u8, trimmed, ";")) {
-            trimmed.len -= ";".len;
             continue;
         }
         break;
@@ -455,21 +447,21 @@ test "test_write_file" {
     try expectEqualStrings(data, read);
 }
 
-test "remove_extension" {
-    try expectEqualStrings("fish", remove_extension("fish.a"));
-    try expectEqualStrings("fish", remove_extension("fish.aa"));
-    try expectEqualStrings("fish", remove_extension("fish.aaa"));
-    try expectEqualStrings("fish", remove_extension("fish.aaaa"));
-    try expectEqualStrings("fish", remove_extension("fish.aaaaa"));
-    try expectEqualStrings("fish2", remove_extension("fish2.aaaaa"));
-    try expectEqualStrings("fish22", remove_extension("fish22.aaaaa"));
-    try expectEqualStrings("fish", remove_extension("fish"));
-    try expectEqualStrings("fish.head", remove_extension("fish.head.txt"));
-    try expectEqualStrings("o", remove_extension("o"));
-    try expectEqualStrings("/happy/fish", remove_extension("/happy/fish"));
-    try expectEqualStrings("/ha.ppy/fish", remove_extension("/ha.ppy/fish"));
-    try expectEqualStrings("/happy/fish", remove_extension("/happy/fish.js"));
-    try expectEqualStrings("c:\\happy\\fish", remove_extension("c:\\happy\\fish.txt"));
+test "removeExtension" {
+    try expectEqualStrings("fish", removeExtension("fish.a"));
+    try expectEqualStrings("fish", removeExtension("fish.aa"));
+    try expectEqualStrings("fish", removeExtension("fish.aaa"));
+    try expectEqualStrings("fish", removeExtension("fish.aaaa"));
+    try expectEqualStrings("fish", removeExtension("fish.aaaaa"));
+    try expectEqualStrings("fish2", removeExtension("fish2.aaaaa"));
+    try expectEqualStrings("fish22", removeExtension("fish22.aaaaa"));
+    try expectEqualStrings("fish", removeExtension("fish"));
+    try expectEqualStrings("fish.head", removeExtension("fish.head.txt"));
+    try expectEqualStrings("o", removeExtension("o"));
+    try expectEqualStrings("/happy/fish", removeExtension("/happy/fish"));
+    try expectEqualStrings("/ha.ppy/fish", removeExtension("/ha.ppy/fish"));
+    try expectEqualStrings("/happy/fish", removeExtension("/happy/fish.js"));
+    try expectEqualStrings("c:\\happy\\fish", removeExtension("c:\\happy\\fish.txt"));
 }
 
 test "addSentence" {
@@ -558,24 +550,27 @@ test "wav_filename" {
 
 test "readMetadata" {
     const gpa = std.testing.allocator;
+    var bucket: StringBucket = .init(gpa);
+    defer bucket.deinit();
+
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.readMetadata(gpa, "v:y\nd:1010\n");
+        try r.readMetadata(gpa, "v:y\nd:1010\n", &bucket);
         try expectEqual(true, r.visible);
         try expectEqual(1010, r.date);
     }
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.readMetadata(gpa, "v:n\nd:1010");
+        try r.readMetadata(gpa, "v:n\nd:1010", &bucket);
         try expectEqual(false, r.visible);
         try expectEqual(1010, r.date);
     }
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.readMetadata(gpa, "c:bob\ni:12ab");
+        try r.readMetadata(gpa, "c:bob\ni:12ab", &bucket);
         try expectEqual(true, r.visible);
         try expect(r.copyright != null);
         try expectEqualStrings("bob", r.copyright.?);
@@ -586,14 +581,14 @@ test "readMetadata" {
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.readMetadata(gpa, "v: 0 \nd:20260102030405 ");
+        try r.readMetadata(gpa, "v: 0 \nd:20260102030405 ", &bucket);
         try expectEqual(false, r.visible);
         try expectEqual(20260102030405, r.date);
     }
     {
         var r: Resource = .empty;
         defer r.deinit(gpa);
-        try r.readMetadata(gpa, "s: fish \rs:cat dog\nv: true \nd:1010 ");
+        try r.readMetadata(gpa, "s: fish \rs:cat dog\nv: true \nd:1010 ", &bucket);
         try expectEqual(true, r.visible);
         try expectEqual(1010, r.date);
         try expectEqual(2, r.sentences.items.len);
@@ -624,3 +619,5 @@ const Setting = @import("Setting.zig");
 const Type = @import("root.zig").Type;
 const Resources = @import("Resources.zig");
 const Parser = @import("praxis").Parser;
+
+const StringBucket = @import("StringBucket.zig");

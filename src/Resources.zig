@@ -49,6 +49,9 @@ bundle_files: std.ArrayListUnmanaged([]const u8) = .empty,
 used_resources: ?std.AutoHashMapUnmanaged(u64, *const Resource),
 used_resources_rwlock: std.Io.RwLock,
 
+/// Hold a cache of resource copyright strings in a bucket.
+string_bucket: StringBucket,
+
 /// Create an empty file bundle including an internal arena allocator.
 /// Follow up with either `loadDirectory()` or `loadBundle()`.
 pub fn init(gpa: Allocator) (Allocator.Error)!Resources {
@@ -61,6 +64,7 @@ pub fn init(gpa: Allocator) (Allocator.Error)!Resources {
         .bundle_files = .empty,
         .used_resources = null,
         .used_resources_rwlock = .init,
+        .string_bucket = .init(gpa),
     };
 }
 
@@ -86,6 +90,8 @@ pub fn deinit(self: *Resources, _: Allocator) void {
     for (self.bundle_files.items) |item|
         self.arena.allocator().free(item);
     self.bundle_files.deinit(self.arena.allocator());
+
+    self.string_bucket.deinit();
 
     self.arena.deinit();
     self.* = undefined;
@@ -584,6 +590,7 @@ pub fn loadDirectory(
             filename.items,
             file_info.name,
             file_info.extension,
+            &self.string_bucket,
         );
         if (resource.uid == 0) {
             warn("Assigning random uid to file. {s}", .{file.name});
@@ -692,7 +699,7 @@ pub fn lookup(
     };
 
     const query = info.accented;
-    const trimmed = sentence_trim(info.accented);
+    const trimmed = trimSentence(info.accented);
     var result_count: usize = 0;
 
     // Lookup by exact full filename (excluding extension and prefixes)
@@ -1110,7 +1117,15 @@ test "load_resource image" {
     const file = "./test/repo/GzeBWE.png";
     const info = Resources.FilenameComponents.split(file);
     var resource: Resource = .empty;
-    try resource.load(gpa, gpa, io, file, info.name, info.extension);
+    try resource.load(
+        gpa,
+        gpa,
+        io,
+        file,
+        info.name,
+        info.extension,
+        &resources.string_bucket,
+    );
     defer resource.deinit(gpa);
 
     try expectEqual(3989967536, resource.uid);
@@ -1137,7 +1152,15 @@ test "load_resource audio" {
     try expectEqual(.wav, info.extension);
 
     var resource: Resource = .empty;
-    try resource.load(gpa, gpa, io, file, info.name, info.extension);
+    try resource.load(
+        gpa,
+        gpa,
+        io,
+        file,
+        info.name,
+        info.extension,
+        &resources.string_bucket,
+    );
     defer resource.deinit(std.testing.allocator);
 
     //try expect(0 != resource.uid);
@@ -1484,7 +1507,7 @@ const load_file_byte_slice = Resource.load_file_byte_slice;
 const load_folder_file_bytes = Resource.load_folder_file_bytes;
 const write_folder_file_bytes = Resource.write_folder_file_bytes;
 const cache_has_file = Resource.cache_has_file;
-const sentence_trim = Resource.sentence_trim;
+const trimSentence = Resource.trimSentence;
 const lessThan = Resource.lessThan;
 
 pub const Type = @import("Type.zig").Type;
@@ -1496,6 +1519,8 @@ const Normaliser = @import("praxis").Normaliser;
 
 const generate_ogg_audio = @import("export_audio.zig").generate_ogg_audio;
 const Size = @import("export_image.zig").Size;
+
+const StringBucket = @import("StringBucket.zig");
 
 pub const wav = @import("wav.zig");
 pub const base62 = @import("base62.zig");
