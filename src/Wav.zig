@@ -1,122 +1,122 @@
-/// Initialize an engine using `Engine.initWithWav()` and save any changes to the
+/// Initialize an engine using `Wav.initWithMetadata()` and save any changes to the
 /// wav data using `engine.write()`
-pub const Engine = struct {
-    channels: u16 = 0,
-    sample_rate: u32 = 0,
-    values: std.ArrayListUnmanaged(f64),
+pub const Wav = @This();
 
-    /// Metadata found during audio import
-    wav: ?*Wav = undefined,
-    /// Max value seen during audio import
-    max: f64 = 0,
+channels: u16 = 0,
+sample_rate: u32 = 0,
+values: std.ArrayListUnmanaged(f64),
 
-    /// Setup an engine entity with a wav data file.
-    pub fn initWithWav(allocator: Allocator, data: []const u8) (Allocator.Error || Error)!*Engine {
-        var engine = try allocator.create(Engine);
-        errdefer engine.destroy(allocator);
-        engine.* = .{
-            .channels = 0,
-            .sample_rate = 0,
-            .values = .empty,
-            .wav = null,
-            .max = 0,
-        };
-        try Wav.init(allocator, data, engine);
-        return engine;
+/// Metadata found during audio import
+wav: ?*Metadata = undefined,
+/// Max value seen during audio import
+max: f64 = 0,
+
+/// Setup an engine entity with a wav data file.
+pub fn initWithMetadata(allocator: Allocator, data: []const u8) (Allocator.Error || Error)!*Wav {
+    var engine = try allocator.create(Wav);
+    errdefer engine.destroy(allocator);
+    engine.* = .{
+        .channels = 0,
+        .sample_rate = 0,
+        .values = .empty,
+        .wav = null,
+        .max = 0,
+    };
+    try Metadata.init(allocator, data, engine);
+    return engine;
+}
+
+pub fn destroy(self: *Wav, allocator: Allocator) void {
+    if (self.wav != null)
+        allocator.destroy(self.wav.?);
+    self.values.deinit(allocator);
+    allocator.destroy(self);
+}
+
+/// Write out the current wav data to an output writer.
+pub fn write(self: *Wav, w: *std.Io.Writer) (std.Io.Writer.Error || Allocator.Error || Error)!void {
+    try self.wav.?.write(w, self);
+}
+
+pub fn clearRetainingCapacity(self: *Wav) void {
+    self.values.clearRetainingCapacity();
+}
+
+/// Heoper function reads the next byte in a wav file and keeps
+/// track of the maximum peak value.
+inline fn ingest(self: *Wav, allocator: Allocator, n: f64) Allocator.Error!void {
+    try self.values.append(allocator, @floatCast(n));
+    self.max = @max(self.max, @abs(n));
+}
+
+/// To prevent clicks and pops at the start and end of an audio file,
+/// a fade in and fade out curve is applied at the start and end of
+/// the file for this amount of time
+pub const fade_out_time: f64 = 0.02;
+
+/// Add a small fade in and fade out transition to the audio data.
+pub fn faders(self: *Wav) void {
+    const fadeLengthF: f64 = @as(f64, @floatFromInt(self.sample_rate)) * fade_out_time;
+    const fadeLength: usize = @intFromFloat(fadeLengthF);
+    if (self.sample_rate == 0) {
+        info("sample rate {d}. fade samples {d}.", .{ self.sample_rate, fadeLength });
+        info("Sample rate for sound engine is 0. Fade in/out is meaningless.", .{});
+        return;
+    }
+    if (self.values.items.len < fadeLength * 2) {
+        info("Sample too sort to apply fade", .{});
+        return;
+    }
+    for (0..fadeLength) |i| {
+        self.values.items[i] = self.values.items[i] * (@as(f64, @floatFromInt(i)) / fadeLengthF);
+    }
+    var v: usize = 0;
+    for (self.values.items.len - fadeLength..self.values.items.len) |i| {
+        const amp: f64 = @as(f64, @floatFromInt(fadeLength - v)) / fadeLengthF;
+        self.values.items[i] = self.values.items[i] * amp;
+        v = v + 1;
+    }
+}
+
+/// Adjust the overall sound level to the requested peak. 0.0 means turn
+/// volume down to zero. 1.0 means turn up to maximum volume. If the the
+/// sound file is almost silent for the entire time, normalisation is
+/// refused because we dont want to turn up the volume on static background
+/// noise.
+pub fn normalise(self: *Wav, peak: f64) f64 {
+    if (self.values.items.len == 0) {
+        err("cant normalise empty file", .{});
+        return 0;
     }
 
-    pub fn destroy(engine: *Engine, allocator: Allocator) void {
-        if (engine.wav != null)
-            allocator.destroy(engine.wav.?);
-        engine.values.deinit(allocator);
-        allocator.destroy(engine);
+    if (peak > 1.0 or peak < -1.0) {
+        err("invalid normalisation size", .{});
+        return 0;
     }
 
-    /// Write out the current wav data to an output writer.
-    pub fn write(e: *Engine, w: *std.Io.Writer) (std.Io.Writer.Error || Allocator.Error || Error)!void {
-        try e.wav.?.write(w, e);
+    if (self.max < 0.03) {
+        warn("audio data is effectively silent. Abort normalisaiton. (peak={d}%)\n", .{self.max * 100});
+        return 0;
     }
 
-    pub fn clearRetainingCapacity(engine: *Engine) void {
-        engine.values.clearRetainingCapacity();
+    const scale = peak / self.max;
+
+    if (scale < 1.01 and scale > 0.99) {
+        debug("audio data does not need scaling. Abort normalisaiton. (peak={d}%, scale={d})\n", .{ self.max * 100, scale });
+        return 1;
     }
 
-    /// Heoper function reads the next byte in a wav file and keeps
-    /// track of the maximum peak value.
-    inline fn ingest(e: *Engine, allocator: Allocator, n: f64) Allocator.Error!void {
-        try e.values.append(allocator, @floatCast(n));
-        e.max = @max(e.max, @abs(n));
+    //err("normalise. max: {d} peak: {d} scale: {d}\n", .{ self.max, peak, scale });
+    if (scale > 1.0) debug("scaling up", .{}) else debug("scaling down", .{});
+
+    self.max = 0;
+    for (self.values.items) |*value| {
+        value.* = value.* * scale;
+        self.max = @max(self.max, @abs(value.*));
     }
 
-    /// To prevent clicks and pops at the start and end of an audio file,
-    /// a fade in and fade out curve is applied at the start and end of
-    /// the file for this amount of time
-    pub const fade_out_time: f64 = 0.02;
-
-    /// Add a small fade in and fade out transition to the audio data.
-    pub fn faders(e: *Engine) void {
-        const fadeLengthF: f64 = @as(f64, @floatFromInt(e.sample_rate)) * fade_out_time;
-        const fadeLength: usize = @intFromFloat(fadeLengthF);
-        if (e.sample_rate == 0) {
-            info("sample rate {d}. fade samples {d}.", .{ e.sample_rate, fadeLength });
-            info("Sample rate for sound engine is 0. Fade in/out is meaningless.", .{});
-            return;
-        }
-        if (e.values.items.len < fadeLength * 2) {
-            info("Sample too sort to apply fade", .{});
-            return;
-        }
-        for (0..fadeLength) |i| {
-            e.values.items[i] = e.values.items[i] * (@as(f64, @floatFromInt(i)) / fadeLengthF);
-        }
-        var v: usize = 0;
-        for (e.values.items.len - fadeLength..e.values.items.len) |i| {
-            const amp: f64 = @as(f64, @floatFromInt(fadeLength - v)) / fadeLengthF;
-            e.values.items[i] = e.values.items[i] * amp;
-            v = v + 1;
-        }
-    }
-
-    /// Adjust the overall sound level to the requested peak. 0.0 means turn
-    /// volume down to zero. 1.0 means turn up to maximum volume. If the the
-    /// sound file is almost silent for the entire time, normalisation is
-    /// refused because we dont want to turn up the volume on static background
-    /// noise.
-    pub fn normalise(e: *Engine, peak: f64) f64 {
-        if (e.values.items.len == 0) {
-            err("cant normalise empty file", .{});
-            return 0;
-        }
-
-        if (peak > 1.0 or peak < -1.0) {
-            err("invalid normalisation size", .{});
-            return 0;
-        }
-
-        if (e.max < 0.03) {
-            warn("audio data is effectively silent. Abort normalisaiton. (peak={d}%)\n", .{e.max * 100});
-            return 0;
-        }
-
-        const scale = peak / e.max;
-
-        if (scale < 1.01 and scale > 0.99) {
-            debug("audio data does not need scaling. Abort normalisaiton. (peak={d}%, scale={d})\n", .{ e.max * 100, scale });
-            return 1;
-        }
-
-        //err("normalise. max: {d} peak: {d} scale: {d}\n", .{ e.max, peak, scale });
-        if (scale > 1.0) debug("scaling up", .{}) else debug("scaling down", .{});
-
-        e.max = 0;
-        for (e.values.items) |*value| {
-            value.* = value.* * scale;
-            e.max = @max(e.max, @abs(value.*));
-        }
-
-        return scale;
-    }
-};
+    return scale;
+}
 
 /// The set of all potential errors that may be returned.
 pub const Error = error{
@@ -128,7 +128,7 @@ pub const Error = error{
 };
 
 /// Holds a representation of a wav file to be read or written.
-pub const Wav = struct {
+pub const Metadata = struct {
     chunkID: []const u8,
     chunkSize: u32,
     chunkFormat: []const u8,
@@ -149,8 +149,8 @@ pub const Wav = struct {
     data: []const u8,
 
     /// Read the contents of a wav file into an engine struct.
-    pub fn init(allocator: Allocator, data: []const u8, engine: *Engine) (error{OutOfMemory} || Error)!void {
-        var wav = try allocator.create(Wav);
+    pub fn init(allocator: Allocator, data: []const u8, engine: *Wav) (error{OutOfMemory} || Error)!void {
+        var wav = try allocator.create(Metadata);
         errdefer {
             allocator.destroy(wav);
             engine.wav = null;
@@ -161,37 +161,37 @@ pub const Wav = struct {
         try wav.read_audio(allocator, engine);
     }
 
-    pub inline fn next_slice(wav: *Wav, size: usize) Error![]const u8 {
+    pub inline fn next_slice(wav: *Metadata, size: usize) Error![]const u8 {
         if (wav.data.len < size) return Error.incomplete_wav_file;
         defer wav.data = wav.data[size..];
         return wav.data[0..size];
     }
 
-    pub inline fn next_u32(wav: *Wav) Error!u32 {
+    pub inline fn next_u32(wav: *Metadata) Error!u32 {
         if (wav.data.len < 4) return Error.incomplete_wav_file;
         defer wav.data = wav.data[4..];
         return std.mem.readInt(u32, wav.data[0..4], std.builtin.Endian.little);
     }
 
-    pub inline fn next_f32(wav: *Wav) Error!f32 {
+    pub inline fn next_f32(wav: *Metadata) Error!f32 {
         if (wav.data.len < 4) return Error.incomplete_wav_file;
         defer wav.data = wav.data[4..];
         return @bitCast(std.mem.readInt(u32, wav.data[0..4], std.builtin.Endian.little));
     }
 
-    pub inline fn next_u16(wav: *Wav) Error!u16 {
+    pub inline fn next_u16(wav: *Metadata) Error!u16 {
         if (wav.data.len < 2) return Error.incomplete_wav_file;
         defer wav.data = wav.data[2..];
         return std.mem.readInt(u16, wav.data[0..2], std.builtin.Endian.little);
     }
 
-    pub inline fn next_i16(wav: *Wav) Error!i16 {
+    pub inline fn next_i16(wav: *Metadata) Error!i16 {
         if (wav.data.len < 2) return Error.incomplete_wav_file;
         defer wav.data = wav.data[2..];
         return std.mem.readInt(i16, wav.data[0..2], std.builtin.Endian.little);
     }
 
-    pub inline fn next_u8(wav: *Wav) Error!u8 {
+    pub inline fn next_u8(wav: *Metadata) Error!u8 {
         if (wav.data.len < 1) return Error.incomplete_wav_file;
         defer wav.data = wav.data[1..];
         return wav.data[0];
@@ -225,7 +225,7 @@ pub const Wav = struct {
         try w.writeByte(value);
     }
 
-    pub fn readMetadata(wav: *Wav) Error!void {
+    pub fn readMetadata(wav: *Metadata) Error!void {
         wav.chunkID = try wav.next_slice(4);
         if (!std.mem.eql(u8, wav.chunkID, "RIFF"))
             return Error.not_wav_file;
@@ -319,13 +319,13 @@ pub const Wav = struct {
             std.mem.eql(u8, value, "FACT") or std.mem.eql(u8, value, "fact");
     }
 
-    pub fn write(wav: *Wav, w: *std.Io.Writer, e: *Engine) (Error || Allocator.Error || std.Io.Writer.Error)!void {
+    pub fn write(wav: *Metadata, w: *std.Io.Writer, e: *Wav) (Error || Allocator.Error || std.Io.Writer.Error)!void {
         try wav.write_header(w, e);
         try wav.write_audio(w, e);
         try w.flush();
     }
 
-    fn write_header(wav: *Wav, w: *std.Io.Writer, e: *Engine) (Allocator.Error || std.Io.Writer.Error)!void {
+    fn write_header(wav: *Metadata, w: *std.Io.Writer, e: *Wav) (Allocator.Error || std.Io.Writer.Error)!void {
         try w.writeAll("RIFF");
         const fileSize: u32 = 36 + @as(u32, @intCast(e.values.items.len * wav.BlockAlign));
         try append_u32(w, fileSize);
@@ -347,7 +347,7 @@ pub const Wav = struct {
         try append_u32(w, wav.subchunk2Size);
     }
 
-    pub fn read_audio(wav: *Wav, allocator: Allocator, e: *Engine) (Error || error{OutOfMemory})!void {
+    pub fn read_audio(wav: *Metadata, allocator: Allocator, e: *Wav) (Error || error{OutOfMemory})!void {
         const numSamples = wav.subchunk2Size / wav.BlockAlign;
         const bytesPerSample = wav.BitsPerSample / 8;
         //audioData := b.ReadData(int(channels)*int(numSamples)*bytesPerSample)
@@ -370,7 +370,7 @@ pub const Wav = struct {
         }
     }
 
-    fn write_audio(wav: *Wav, w: anytype, e: *Engine) (Error || Allocator.Error || std.Io.Writer.Error)!void {
+    fn write_audio(wav: *Metadata, w: anytype, e: *Wav) (Error || Allocator.Error || std.Io.Writer.Error)!void {
         const bytesPerSample = wav.BitsPerSample / 8;
 
         for (e.values.items) |value| {
@@ -384,12 +384,12 @@ pub const Wav = struct {
 };
 
 /// Createe an empty placeholder 16 bit integer wav file.
-pub fn NewWave16BitInt(channels: u16, sampleRate: u32) *Wav {
+pub fn NewMetadata(channels: u16, sampleRate: u32) *Metadata {
     if (channels == 0 or sampleRate == 0)
         return Error.invalid_channel_metadata;
 
     const u16Size = 2;
-    return &Wav{
+    return &Metadata{
         .AudioFormat = 1,
         .Channels = channels,
         .SampleRate = sampleRate,
@@ -400,12 +400,12 @@ pub fn NewWave16BitInt(channels: u16, sampleRate: u32) *Wav {
 }
 
 /// Createe an empty placeholder 32 bit floating point wav file.
-pub fn NewWave32BitFloat(channels: u16, sampleRate: u32) *Wav {
+pub fn NewFloatMetadata(channels: u16, sampleRate: u32) *Metadata {
     if (channels == 0 or sampleRate == 0)
         return Error.invalid_channel_metadata;
 
     const float32Size = 4;
-    return &Wav{
+    return &Metadata{
         .AudioFormat = 3,
         .Channels = channels,
         .SampleRate = sampleRate,
@@ -418,11 +418,11 @@ pub fn NewWave32BitFloat(channels: u16, sampleRate: u32) *Wav {
 test "read_wav_32_mono" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
-    try std.testing.expectEqual(Error.incomplete_wav_file, Engine.initWithWav(allocator, ""));
+    try std.testing.expectEqual(Error.incomplete_wav_file, Wav.initWithMetadata(allocator, ""));
 
     // Read a simple wav file. Ignore unused headers.
     const data = @embedFile("wav_32");
-    const e = try Engine.initWithWav(allocator, data);
+    const e = try Wav.initWithMetadata(allocator, data);
     defer e.destroy(allocator);
     try expectEqual(1, e.channels);
     try expectEqual(44100, e.sample_rate);
@@ -434,7 +434,7 @@ test "read_wav_32_mono" {
 
     {
         // Read/write and check result
-        const e2 = try Engine.initWithWav(allocator, out.written());
+        const e2 = try Wav.initWithMetadata(allocator, out.written());
         defer e2.destroy(allocator);
         var out2 = std.Io.Writer.Allocating.init(allocator);
         defer out2.deinit();
@@ -464,11 +464,11 @@ test "read_wav_32_mono" {
 test "read_wav_32_stereo" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
-    try std.testing.expectEqual(Error.incomplete_wav_file, Engine.initWithWav(allocator, ""));
+    try std.testing.expectEqual(Error.incomplete_wav_file, Wav.initWithMetadata(allocator, ""));
 
     // Read a simple wav file. Ignore unused headers.
     const data = @embedFile("wav_32_stereo");
-    const e = try Engine.initWithWav(allocator, data);
+    const e = try Wav.initWithMetadata(allocator, data);
     defer e.destroy(allocator);
     try expectEqual(2, e.channels);
     try expectEqual(44100, e.sample_rate);
@@ -493,7 +493,7 @@ test "read_wav_16" {
 
     // Read a simple wav file. Ignore unused headers.
     const data = @embedFile("wav_16");
-    const e = try Engine.initWithWav(allocator, data);
+    const e = try Wav.initWithMetadata(allocator, data);
     defer e.destroy(allocator);
     try expectEqual(1, e.channels);
     try expectEqual(44100, e.sample_rate);
@@ -515,7 +515,7 @@ test "fader_test" {
 
     // Read a simple wav file. Ignore unused headers.
     const data = @embedFile("wav_fade_edges");
-    const e = try Engine.initWithWav(gpa, data);
+    const e = try Wav.initWithMetadata(gpa, data);
     defer e.destroy(gpa);
     try expectEqual(2, e.channels);
     try expectEqual(44100, e.sample_rate);

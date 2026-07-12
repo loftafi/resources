@@ -249,7 +249,7 @@ pub fn saveBundle(
     std.Io.File.SeekError || std.Io.Reader.Error || std.Io.Writer.Error ||
     std.Io.File.Writer.Error || std.Io.Dir.OpenError || std.Io.Dir.RenameError ||
     std.Io.File.StatError || std.Io.Reader.LimitedAllocError ||
-    std.Io.File.Reader.Error || error{FfmpegFailure} || wav.Error)!void {
+    std.Io.File.Reader.Error || error{FfmpegFailure} || Wav.Error)!void {
     random.seed(io);
 
     const cache_dir = std.Io.Dir.openDirAbsolute(io, cache, .{ .iterate = false }) catch |f| {
@@ -1522,7 +1522,7 @@ const Size = @import("export_image.zig").Size;
 
 const StringBucket = @import("StringBucket.zig");
 
-pub const wav = @import("wav.zig");
+pub const Wav = @import("Wav.zig");
 pub const base62 = @import("base62.zig");
 
 const BinaryReader = @import("binary_reader.zig");

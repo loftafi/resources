@@ -10,7 +10,7 @@ pub fn generate_ogg_audio(
     resource: *const Resource,
     resources: *Resources,
     options: *const SaveOptions,
-) (wav.Error || Allocator.Error || Resources.Error || error{FfmpegFailure} ||
+) (Wav.Error || Allocator.Error || Resources.Error || error{FfmpegFailure} ||
     std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError ||
     std.Io.Writer.Error || std.Io.Reader.LimitedAllocError ||
     std.Io.Dir.StatFileError || std.process.RunError)![]const u8 {
@@ -23,7 +23,7 @@ pub fn generate_ogg_audio(
     if (options.normalise_audio) {
         var clean = std.Io.Writer.Allocating.init(gpa);
         errdefer clean.deinit();
-        var audio = wav.Engine.initWithWav(gpa, data) catch |f| {
+        var audio = Wav.initWithMetadata(gpa, data) catch |f| {
             err("Failed to import wav data for {d}. Error:{any}", .{ resource.uid, f });
             return f;
         };
@@ -229,4 +229,4 @@ const SaveOptions = Resources.SaveOptions;
 const base62 = @import("base62.zig");
 const write_folder_file_bytes = Resource.write_folder_file_bytes;
 
-const wav = @import("wav.zig");
+const Wav = @import("Wav.zig");
