@@ -1,6 +1,6 @@
 .{
     .name = .resources,
-    .version = "2.0.6",
+    .version = "2.0.7",
     .fingerprint = 0xef66ebae23b04127,
     .minimum_zig_version = "0.16.0",
 
@@ -10,8 +10,8 @@
             .hash = "praxis-0.8.1-FPf2NVwIBwDHTjVLLaMnMiOFgIAgbp2CvtwdvdfGvF0u",
         },
         .zeit = .{
-            .url = "git+https://github.com/rockorager/zeit?ref=0.16#da59d0141ba556c77d503d5e1aebeaf5a6bf9e26",
-            .hash = "zeit-0.6.0-5I6bk2i6AgDYOczMsuuKcM7NYuOoTtxWEsZDsg8kSTiv",
+            .url = "git+https://github.com/rockorager/zeit#ed64c36035fe44d6372c20cbcd447b0090687167",
+            .hash = "zeit-0.10.0-dev-5I6bk4i0AgANIwpoMN_iBL-OGEpyDuInvQLfrPe_FVb1",
         },
         .zg = .{
             .url = "git+https://codeberg.org/atman/zg#3f95a1625abf08c3c2067053f32e33e3c2da6135",

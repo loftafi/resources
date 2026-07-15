@@ -189,9 +189,9 @@ pub fn resdump(io: std.Io, bucket: *Resources) std.Io.Writer.Error!void {
             resource.*.sentences.items[0]
         else
             "";
-        try stdout.print("{f: >13} {s: >12} {d:8} {t:5}  {s}\n", .{
+        try stdout.print("{f: >13} {d: >12} {d:8} {t:5}  {s}\n", .{
             base62.writer(u64, resource.*.uid),
-            resource.*.date orelse "",
+            resource.*.date,
             resource.*.size,
             resource.*.resource,
             name,
