@@ -107,7 +107,7 @@ pub fn loadBundle(
 ) (Allocator.Error || std.Io.File.OpenError || Error || std.Io.Reader.Error || std.Io.Reader.Error)!void {
     random.seed(io);
 
-    const bundle_filename: [:0]u8 = try self.arena.allocator().dupeZ(u8, bundle_file);
+    const bundle_filename: [:0]u8 = try self.arena.allocator().dupeSentinel(u8, bundle_file, 0);
     errdefer self.arena.allocator().free(bundle_filename);
 
     var buffer: [300:0]u8 = undefined;
@@ -529,7 +529,7 @@ pub fn loadDirectory(
             self.used_resources = .empty;
     }
 
-    self.folder = try self.arena.allocator().dupeZ(u8, folder);
+    self.folder = try self.arena.allocator().dupeSentinel(u8, folder, 0);
 
     var filename: ArrayListUnmanaged(u8) = .empty;
     defer filename.deinit(gpa);

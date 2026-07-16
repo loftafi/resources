@@ -106,7 +106,16 @@ fn wav_to_ogg(
     defer gpa.free(output.stderr);
 
     if (output.term.exited != 0) {
-        err("Build ogg file failed exit code {d}", .{output.term.exited});
+        var w: std.Io.Writer.Allocating = .init(gpa);
+        defer w.deinit();
+        for (argv) |arg| {
+            w.writer.writeAll(arg) catch {};
+            w.writer.writeByte(' ') catch {};
+        }
+        err("Build ogg file failed args={s} exit_code={d}", .{
+            w.written(),
+            output.term.exited,
+        });
         err("Build ogg file failed. {any}", .{output.stderr});
         return error.FfmpegFailure;
     }

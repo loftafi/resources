@@ -136,11 +136,11 @@ pub fn tagFormat(fmt: []const u8, args: anytype, buf: []u8) error{NoSpaceLeft}![
             const field_name = fmt[start .. end - 1];
 
             var found = false;
-            inline for (std.meta.fields(@TypeOf(args))) |field| {
-                if (std.ascii.eqlIgnoreCase(field.name, field_name)) {
+            inline for (comptime std.meta.fieldNames(@TypeOf(args)), comptime std.meta.fieldTypes(@TypeOf(args))) |name, T| {
+                if (std.ascii.eqlIgnoreCase(name, field_name)) {
                     found = true;
-                    const value = @field(args, field.name);
-                    if (@typeInfo(field.type) == .pointer) {
+                    const value = @field(args, name);
+                    if (@typeInfo(T) == .pointer) {
                         w.print("{s}", .{value}) catch |e| switch (e) {
                             error.WriteFailed => return error.NoSpaceLeft,
                         };

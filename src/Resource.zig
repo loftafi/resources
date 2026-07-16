@@ -77,7 +77,7 @@ pub fn load(
     file_type: Type,
     string_bucket: *StringBucket,
 ) (error{OutOfMemory} || Resources.Error || std.Io.File.StatError || std.Io.File.OpenError || std.fmt.BufPrintError)!void {
-    if (filename.len > 0) self.filename = try arena.dupeZ(u8, filename);
+    if (filename.len > 0) self.filename = try arena.dupeSentinel(u8, filename, 0);
 
     self.resource = file_type;
 

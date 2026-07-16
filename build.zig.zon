@@ -1,6 +1,6 @@
 .{
     .name = .resources,
-    .version = "2.1.1",
+    .version = "2.1.2",
     .fingerprint = 0xef66ebae23b04127,
     .minimum_zig_version = "0.16.0",
 
@@ -28,6 +28,12 @@
         "build.zig.zon",
         "src",
         "build/find_ndk.zig",
+        "test",
+        "test/test_16bit.wav",
+        "test/test_32bit_stereo.wav",
+        "test/test_32bit.wav",
+        "test/test_wav_fade_edges.wav",
+        "test/test.txt",
         "LICENSE.md",
         "README.md",
     },

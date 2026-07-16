@@ -48,22 +48,22 @@ pub fn build(b: *std.Build) void {
         .filters = test_filters,
     });
 
-    const test_folder = b.path("./test/");
-    const opts = b.addOptions();
-    opts.addOptionPath("test_folder", test_folder);
-    tests.root_module.addImport("test_folder", opts.createModule());
+    //const test_folder = b.path("test/");
+    //const opts = b.addOptions();
+    //opts.addOptionPath("test_folder", test_folder);
+    //tests.root_module.addImport("test_folder", opts.createModule());
 
     tests.root_module.addAnonymousImport("wav_32", .{
-        .root_source_file = b.path("./test/test_32bit.wav"),
+        .root_source_file = b.path("test/test_32bit.wav"),
     });
     tests.root_module.addAnonymousImport("wav_16", .{
-        .root_source_file = b.path("./test/test_16bit.wav"),
+        .root_source_file = b.path("test/test_16bit.wav"),
     });
     tests.root_module.addAnonymousImport("wav_32_stereo", .{
-        .root_source_file = b.path("./test/test_32bit_stereo.wav"),
+        .root_source_file = b.path("test/test_32bit_stereo.wav"),
     });
     tests.root_module.addAnonymousImport("wav_fade_edges", .{
-        .root_source_file = b.path("./test/test_wav_fade_edges.wav"),
+        .root_source_file = b.path("test/test_wav_fade_edges.wav"),
     });
 
     const run_tests = b.addRunArtifact(tests);
