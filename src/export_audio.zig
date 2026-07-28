@@ -13,14 +13,14 @@ pub fn generate_ogg_audio(
 ) (Wav.Error || Allocator.Error || Resources.Error || error{FfmpegFailure} ||
     std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError ||
     std.Io.Writer.Error || std.Io.Reader.LimitedAllocError ||
-    std.Io.Dir.StatFileError || std.process.RunError)![]const u8 {
+    std.Io.Dir.StatFileError || std.process.RunError || error{InvalidSlice})![]const u8 {
     var data = resources.loadResource(gpa, io, resource) catch |f| {
         err("Failed to read wav data for {d}. Error:{any}", .{ resource.uid, f });
         return f;
     };
     defer gpa.free(data);
 
-    if (options.normalise_audio) {
+    if (options.normalise_audio) |max| {
         var clean = std.Io.Writer.Allocating.init(gpa);
         errdefer clean.deinit();
         var audio = Wav.initWithMetadata(gpa, data) catch |f| {
@@ -28,11 +28,15 @@ pub fn generate_ogg_audio(
             return f;
         };
         defer audio.destroy(gpa);
-        if (audio.max < 0.95) {
-            std.log.debug("Normalising {f} volume from {d} to {d}", .{ base62.writer(u64, resource.uid), audio.max, 0.95 });
-            _ = audio.normalise(0.95);
+        if (audio.max < max) {
+            std.log.info("Normalising {f} volume from {d} to {d}", .{ base62.writer(u64, resource.uid), audio.max, max });
+            _ = audio.normalise(max);
+        } else {
+            std.log.debug("No normalisation required max={d}.", .{audio.max});
         }
-        audio.faders();
+        if (options.trim) |trim| try audio.trimSilence(trim);
+        if (options.fade) |fade| audio.faders(fade);
+
         try audio.write(&clean.writer);
 
         gpa.free(data);
@@ -208,7 +212,7 @@ test "audio_to_ogg" {
     try expectEqual(1, resource.?.sentences.items.len);
     try expectEqualStrings("ἄρτος", resource.?.sentences.items[0]);
 
-    const data = try generate_ogg_audio(gpa, io, resource.?, &resources, &.{ .normalise_audio = true });
+    const data = try generate_ogg_audio(gpa, io, resource.?, &resources, &.{ .normalise_audio = 0.99 });
     defer gpa.free(data);
 
     // Different versions of ffmpeg create a slightly different sized file.
@@ -238,4 +242,4 @@ const SaveOptions = Resources.SaveOptions;
 const base62 = @import("base62.zig");
 const write_folder_file_bytes = Resource.write_folder_file_bytes;
 
-const Wav = @import("Wav.zig");
+const Wav = @import("wav").Wav;

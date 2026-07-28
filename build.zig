@@ -5,9 +5,11 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
-    // Prepare praxis module
     const praxis = b.dependency("praxis", .{ .target = target, .optimize = optimize });
     const praxis_module = praxis.module("praxis");
+
+    const wav = b.dependency("wav", .{ .target = target, .optimize = optimize });
+    const wav_module = wav.module("wav");
 
     const zstbi = b.dependency("zstbi", .{ .target = target, .optimize = optimize });
     const zstbi_module = zstbi.module("root");
@@ -21,6 +23,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "praxis", .module = praxis_module },
+            .{ .name = "wav", .module = wav_module },
             .{ .name = "zstbi", .module = zstbi_module },
             .{ .name = "Normalize", .module = zg.module("Normalize") },
         },
@@ -41,6 +44,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "praxis", .module = praxis_module },
+                .{ .name = "wav", .module = wav_module },
                 .{ .name = "zstbi", .module = zstbi_module },
                 .{ .name = "Normalize", .module = zg.module("Normalize") },
             },
@@ -52,22 +56,6 @@ pub fn build(b: *std.Build) void {
     //const opts = b.addOptions();
     //opts.addOptionPath("test_folder", test_folder);
     //tests.root_module.addImport("test_folder", opts.createModule());
-
-    tests.root_module.addAnonymousImport("wav_32", .{
-        .root_source_file = b.path("test/test_32bit.wav"),
-    });
-    tests.root_module.addAnonymousImport("wav_16", .{
-        .root_source_file = b.path("test/test_16bit.wav"),
-    });
-    tests.root_module.addAnonymousImport("wav_32_stereo", .{
-        .root_source_file = b.path("test/test_32bit_stereo.wav"),
-    });
-    tests.root_module.addAnonymousImport("wav_fade_edges", .{
-        .root_source_file = b.path("test/test_wav_fade_edges.wav"),
-    });
-    tests.root_module.addAnonymousImport("wav_quiet", .{
-        .root_source_file = b.path("test/repo/quiet.wav"),
-    });
 
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");

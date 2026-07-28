@@ -967,7 +967,13 @@ pub const SaveOptions = struct {
     image: ImageOption = .original,
 
     /// Normalise audio files for consistent volume.
-    normalise_audio: bool = false,
+    normalise_audio: ?f32 = null,
+
+    /// Add a fade in/out to audio clips (in ms).
+    fade: ?usize = null,
+
+    /// Trim beggining and end spacing of audio clips with a window in ms.
+    trim: ?usize = null,
 
     /// Reduce the size of any image that is wider orhigher than this limit.
     max_image_size: Size = .{ .width = 10000, .height = 10000 },
@@ -1522,7 +1528,7 @@ const Size = @import("export_image.zig").Size;
 
 const StringBucket = @import("StringBucket.zig");
 
-pub const Wav = @import("Wav.zig");
+pub const Wav = @import("wav").Wav;
 pub const base62 = @import("base62.zig");
 
 const BinaryReader = @import("binary_reader.zig");

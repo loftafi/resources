@@ -1,6 +1,6 @@
 .{
     .name = .resources,
-    .version = "2.1.3",
+    .version = "2.2.0",
     .fingerprint = 0xef66ebae23b04127,
     .minimum_zig_version = "0.16.0",
 
@@ -20,6 +20,10 @@
         .zstbi = .{
             .url = "git+https://github.com/zaddok/zstbi.git#456b7620bf8036d29454d98cb506e0428e6510ae",
             .hash = "zstbi-0.11.0-dev-L0Ea_06WBwCZoJBl6SD0bcHOLEEIrD5xbQ0TbXe-SQ5Y",
+        },
+        .wav = .{
+            .url = "git+https://github.com/loftafi/wav.git#e2aece6959dfb1d40b58e874d42f63e0eb4ccaa4",
+            .hash = "wav-0.1.0-HyV8ivC9BgC2FTx1Aq2WbPVBzwxsTDqHEKJAiK0dVs91",
         },
     },
 
