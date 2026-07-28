@@ -14,7 +14,6 @@ pub const Size = struct {
     height: u32,
 };
 
-//pub fn generate_ogg_audio(gpa: Allocator, resource: *const Resource, resources: *Resources)
 /// export an image resource into a specific `dst` folder bounded to a specific
 /// width and height.
 pub fn exportImage(
@@ -26,11 +25,11 @@ pub fn exportImage(
     mode: ScaleMode,
     image_type: Type,
 ) (Allocator.Error || Resources.Error || error{ ExportsJpgOrPngOnly, ImageConversionError } || std.Io.File.OpenError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Writer.Error || std.Io.File.StatError || std.Io.Reader.LimitedAllocError)![]const u8 {
-    zstbi.init(allocator, io);
-    defer zstbi.deinit();
-
     if (image_type != .png and image_type != .jpg)
         return error.ExportsJpgOrPngOnly;
+
+    zstbi.init(allocator, io);
+    defer zstbi.deinit();
 
     // Read the raw image data
     const data = try resources.loadResource(allocator, io, resource);
@@ -106,29 +105,19 @@ pub fn exportImage(
         img = cropped_img;
     }
 
-    switch (image_type) {
-        .jpg => {
-            var buffer: Buffer = .{ .allocator = allocator };
-            Image.writeToFn(img, write_fn, &buffer, .{ .jpg = .{ .quality = 75 } }) catch |f| {
-                err("Image write failed. {any}", .{f});
-                return error.ImageConversionError;
-            };
-            if (buffer.failed) return error.ImageConversionError;
-            return buffer.data.toOwnedSlice(allocator);
-        },
-        .png => {
-            var buffer: Buffer = .{ .allocator = allocator };
-            Image.writeToFn(img, write_fn, &buffer, .png) catch |f| {
-                err("Image write failed. {any}", .{f});
-                return error.ImageConversionError;
-            };
-            if (buffer.failed) return error.ImageConversionError;
-            return buffer.data.toOwnedSlice(allocator);
-        },
-        else => unreachable, // only jpg and png should reach this point.
-    }
+    const conf: zstbi.ImageWriteFormat = switch (image_type) {
+        .jpg => .{ .jpg = .{ .quality = 75 } },
+        .png => .png,
+        else => unreachable,
+    };
 
-    return error.ImageConversionError;
+    var buffer: Buffer = .{ .allocator = allocator };
+    Image.writeToFn(img, write_fn, &buffer, conf) catch |f| {
+        err("Image write failed. {any}", .{f});
+        return error.ImageConversionError;
+    };
+    if (buffer.failed) return error.ImageConversionError;
+    return buffer.data.toOwnedSlice(allocator);
 }
 
 const Buffer = struct {

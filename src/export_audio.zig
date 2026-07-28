@@ -116,7 +116,7 @@ fn wav_to_ogg(
             w.written(),
             output.term.exited,
         });
-        err("Build ogg file failed. {any}", .{output.stderr});
+        err("Build ogg file failed. {s}", .{output.stderr});
         return error.FfmpegFailure;
     }
 

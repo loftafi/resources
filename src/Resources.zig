@@ -310,7 +310,7 @@ pub fn saveBundle(
                 std.log.info("generating ogg for {s} wav. {s} normalised={any}", .{ name, uid, options.normalise_audio });
                 const processed = generate_ogg_audio(gpa, io, resource, self, options) catch |f| {
                     err("generate_ogg_audio_failed. {any} Skipping {s}. {s}", .{ f, uid, resource.filename.? });
-                    continue;
+                    std.process.exit(1);
                 };
                 std.log.info("generated ogg for {s} size={Bi:.2}", .{ name, processed.len });
                 defer gpa.free(processed);
@@ -1388,7 +1388,7 @@ test "bundle" {
         defer resources.deinit(gpa);
         _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
-        try expectEqual(402, resources.by_sentence.index.count());
+        try expectEqual(407, resources.by_sentence.index.count());
 
         var buffer: [10]*Resource = undefined;
 

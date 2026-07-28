@@ -473,7 +473,7 @@ test "read_wav_32_stereo" {
     try expectEqual(2, e.channels);
     try expectEqual(44100, e.sample_rate);
     const scale = e.normalise(0.90);
-    try expectApproxEqAbs(0.62, scale, 0.01);
+    try expectApproxEqAbs(0.62, scale, 0.01); // Multiplication factor to fix volume
     try expectApproxEqAbs(1, e.normalise(0.9), 0.01);
     e.faders();
 
@@ -483,6 +483,33 @@ test "read_wav_32_stereo" {
     try e.wav.?.write(&out.writer, e);
 
     var f = try std.Io.Dir.cwd().createFile(io, "/tmp/w3.wav", .{});
+    defer f.close(io);
+    try f.writeStreamingAll(io, out.written());
+}
+
+test "read_wav_quiet" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    try std.testing.expectEqual(Error.incomplete_wav_file, Wav.initWithMetadata(allocator, ""));
+
+    // Read a simple wav file. Ignore unused headers.
+    const data = @embedFile("wav_quiet");
+    const e = try Wav.initWithMetadata(allocator, data);
+    defer e.destroy(allocator);
+    try expectEqual(1, e.channels);
+    try expectEqual(44100, e.sample_rate);
+    try expectApproxEqAbs(0.11, e.max, 0.01);
+    const scale = e.normalise(0.90); // Multiplication factor to fix volume
+    try expectApproxEqAbs(8.099, scale, 0.001);
+    try expectApproxEqAbs(1, e.normalise(0.9), 0.01);
+    e.faders();
+
+    // Output the simple wave file. Unused headers will not be emitted.
+    var out = std.Io.Writer.Allocating.init(allocator);
+    defer out.deinit();
+    try e.wav.?.write(&out.writer, e);
+
+    var f = try std.Io.Dir.cwd().createFile(io, "/tmp/wav_quiet.wav", .{});
     defer f.close(io);
     try f.writeStreamingAll(io, out.written());
 }

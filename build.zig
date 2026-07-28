@@ -65,6 +65,9 @@ pub fn build(b: *std.Build) void {
     tests.root_module.addAnonymousImport("wav_fade_edges", .{
         .root_source_file = b.path("test/test_wav_fade_edges.wav"),
     });
+    tests.root_module.addAnonymousImport("wav_quiet", .{
+        .root_source_file = b.path("test/repo/quiet.wav"),
+    });
 
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");

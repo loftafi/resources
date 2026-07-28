@@ -16,6 +16,7 @@ pub const Type = enum(u8) {
     ogg = 12,
     mp3 = 13,
     js = 14,
+    avif = 15,
 
     pub fn extension(self: Type) [:0]const u8 {
         return switch (self) {
@@ -33,6 +34,7 @@ pub const Type = enum(u8) {
             .ogg => "ogg",
             .mp3 => "mp3",
             .js => "js",
+            .avif => "avif",
             else => "unknown",
         };
     }
@@ -53,6 +55,7 @@ pub const Type = enum(u8) {
             .ogg => ".ogg",
             .mp3 => ".mp3",
             .js => ".js",
+            .avif => ".avif",
             else => ".unknown",
         };
     }
@@ -77,6 +80,7 @@ pub const Type = enum(u8) {
         if (std.ascii.eqlIgnoreCase(ext, "xml")) return .xml;
         if (std.ascii.eqlIgnoreCase(ext, "js")) return .js;
         if (std.ascii.eqlIgnoreCase(ext, "json")) return .json;
+        if (std.ascii.eqlIgnoreCase(ext, "avif")) return .avif;
 
         return .unknown;
     }
