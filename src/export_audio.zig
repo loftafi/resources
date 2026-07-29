@@ -21,8 +21,6 @@ pub fn generate_ogg_audio(
     defer gpa.free(data);
 
     if (options.normalise_audio) |max| {
-        var clean = std.Io.Writer.Allocating.init(gpa);
-        errdefer clean.deinit();
         var audio = Wav.initWithMetadata(gpa, data) catch |f| {
             err("Failed to import wav data for {d}. Error:{any}", .{ resource.uid, f });
             return f;
@@ -37,6 +35,8 @@ pub fn generate_ogg_audio(
         if (options.trim) |trim| try audio.trimSilence(trim);
         if (options.fade) |fade| audio.faders(fade);
 
+        var clean = std.Io.Writer.Allocating.init(gpa);
+        errdefer clean.deinit();
         try audio.write(&clean.writer);
 
         gpa.free(data);
