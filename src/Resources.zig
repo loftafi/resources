@@ -52,9 +52,13 @@ used_resources_rwlock: std.Io.RwLock,
 /// Hold a cache of resource copyright strings in a bucket.
 string_bucket: StringBucket,
 
+rwlock: std.Io.RwLock,
+
+io: std.Io,
+
 /// Create an empty file bundle including an internal arena allocator.
 /// Follow up with either `loadDirectory()` or `loadBundle()`.
-pub fn init(gpa: Allocator) (Allocator.Error)!Resources {
+pub fn init(gpa: Allocator, io: std.Io) Allocator.Error!Resources {
     return .{
         .arena = .init(gpa),
         .by_uid = .empty,
@@ -65,6 +69,8 @@ pub fn init(gpa: Allocator) (Allocator.Error)!Resources {
         .used_resources = null,
         .used_resources_rwlock = .init,
         .string_bucket = .init(gpa),
+        .rwlock = .init,
+        .io = io,
     };
 }
 
@@ -160,7 +166,10 @@ pub fn registerResource(
     self: *Resources,
     r: *Resource,
     filename: ?[]const u8,
-) error{ OutOfMemory, ReadMetadataFailed }!void {
+) (error{ OutOfMemory, ReadMetadataFailed } || Error)!void {
+    try self.rwlock.lock(self.io);
+    defer self.rwlock.unlock(self.io);
+
     if (self.by_uid.contains(r.uid)) {
         err("duplicated uid={f} bundle_offset={d} filename={s}", .{
             base62.writer(u64, r.uid),
@@ -244,7 +253,7 @@ pub fn saveBundle(
     resources: std.AutoHashMapUnmanaged(u64, *const Resource),
     options: *const SaveOptions,
     cache: []const u8,
-) (Allocator.Error || Resources.Error || std.Io.File.OpenError ||
+) (Allocator.Error || Error || std.Io.File.OpenError ||
     std.Io.Writer.Error || std.Io.Writer.Error || std.Io.Reader.Error ||
     std.Io.File.SeekError || std.Io.Reader.Error || std.Io.Writer.Error ||
     std.Io.File.Writer.Error || std.Io.Dir.OpenError || std.Io.Dir.RenameError ||
@@ -265,6 +274,9 @@ pub fn saveBundle(
     var file_index: usize = 0; // Count the file index position (after header)
     var buff: [40:0]u8 = undefined;
     var buff2: [100]u8 = undefined; // uid length plus file extension
+
+    try self.rwlock.lockShared(self.io);
+    defer self.rwlock.unlockShared(self.io);
 
     var iterator = resources.valueIterator();
     while (iterator.next()) |r| {
@@ -515,7 +527,7 @@ pub fn loadDirectory(
     Utf8OverlongEncoding,
     Utf8EncodesSurrogateHalf,
     Utf8CodepointTooLarge,
-} || std.Io.File.OpenError || std.Io.File.StatError || std.fmt.BufPrintError || std.Io.Cancelable)!bool {
+} || std.Io.File.OpenError || std.Io.File.StatError || std.fmt.BufPrintError || Error)!bool {
     var dir = std.Io.Dir.cwd().openDir(io, folder, .{ .iterate = true }) catch |e| {
         log.warn("Load directory {s} failed. Error: {any}", .{ folder, e });
         return false;
@@ -523,8 +535,8 @@ pub fn loadDirectory(
     defer dir.close(io);
 
     {
-        try self.used_resources_rwlock.lock(io);
-        defer self.used_resources_rwlock.unlock(io);
+        try self.used_resources_rwlock.lock(self.io);
+        defer self.used_resources_rwlock.unlock(self.io);
         if (self.used_resources == null)
             self.used_resources = .empty;
     }
@@ -646,8 +658,11 @@ pub fn search(
     keywords: []const []const u8,
     category: SearchCategory,
     buffer: []*Resource,
-) error{ OutOfMemory, NormalisationFailed }![]const *Resource {
+) (error{ OutOfMemory, NormalisationFailed } || Error)![]const *Resource {
     var result_count: usize = 0;
+
+    try self.rwlock.lockShared(self.io);
+    defer self.rwlock.unlockShared(self.io);
 
     for (keywords) |keyword| {
         const r = try self.by_word.lookup(keyword);
@@ -677,7 +692,7 @@ pub fn search(
 /// searching for a single word inside a filename, use `search()` for
 /// single word keyword search.
 pub fn lookup(
-    self: *const Resources,
+    self: *Resources,
     sentence: []const u8,
     category: SearchCategory,
     match: Match,
@@ -701,6 +716,9 @@ pub fn lookup(
     const query = info.accented;
     const trimmed = trimSentence(info.accented);
     var result_count: usize = 0;
+
+    try self.rwlock.lockShared(self.io);
+    defer self.rwlock.unlockShared(self.io);
 
     // Lookup by exact full filename (excluding extension and prefixes)
     const search_results = try self.by_sentence.lookup(query);
@@ -781,7 +799,7 @@ pub fn lookup(
 /// `sentence` _must_ be normalised with `resources.Normalize.nfc()`
 /// if input text is not already normalised.
 pub fn lookupRandom(
-    self: *const Resources,
+    self: *Resources,
     sentence: []const u8,
     category: SearchCategory,
 ) Error!?*Resource {
@@ -813,7 +831,7 @@ pub fn lookupRandom(
 /// `sentence` _must_ be normalised with `resources.Normalize.nfc()`
 /// if input text is not already normalised.
 pub fn lookupNewest(
-    self: *const Resources,
+    self: *Resources,
     sentence: []const u8,
     category: SearchCategory,
 ) Error!?*Resource {
@@ -854,7 +872,7 @@ pub fn loadResource(
     gpa: Allocator,
     io: std.Io,
     resource: *const Resource,
-) (Resources.Error || Allocator.Error || std.Io.File.OpenError || std.Io.File.StatError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.LimitedAllocError || std.Io.Cancelable)![]const u8 {
+) (Error || Allocator.Error || std.Io.File.OpenError || std.Io.File.StatError || std.Io.Reader.Error || std.Io.File.SeekError || std.Io.Reader.LimitedAllocError)![]const u8 {
     {
         try self.used_resources_rwlock.lock(io);
         defer self.used_resources_rwlock.unlock(io);
@@ -957,6 +975,7 @@ pub const Error = error{
     UnknownImageOrientation,
     ImageConversionError,
     NormalisationFailed,
+    Canceled,
 };
 
 /// `SaveOptions` provides export configuration options to `saveBundle()`.
@@ -1105,8 +1124,9 @@ test read_extension {
 
 test init {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
 
-    var resources: Resources = try .init(gpa);
+    var resources: Resources = try .init(gpa, io);
     defer resources.deinit(gpa);
 
     try expectEqual(0, resources.by_uid.count());
@@ -1117,7 +1137,7 @@ test "load_resource image" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var resources: Resources = try .init(gpa);
+    var resources: Resources = try .init(gpa, io);
     defer resources.deinit(gpa);
 
     const file = "./test/repo/GzeBWE.png";
@@ -1149,7 +1169,7 @@ test "load_resource audio" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var resources: Resources = try .init(gpa);
+    var resources: Resources = try .init(gpa, io);
     defer resources.deinit(gpa);
 
     const file = "./test/repo/jay~ἄρτος.wav";
@@ -1181,7 +1201,7 @@ test "search resources" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var resources: Resources = try .init(gpa);
+    var resources: Resources = try .init(gpa, io);
     defer resources.deinit(gpa);
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
@@ -1262,7 +1282,7 @@ test "ignore_not_visible" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var resources: Resources = try .init(gpa);
+    var resources: Resources = try .init(gpa, io);
     defer resources.deinit(gpa);
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
@@ -1283,7 +1303,7 @@ test "font_lookup" {
 
     var buffer: [10]*Resource = undefined;
 
-    var resources: Resources = try .init(gpa);
+    var resources: Resources = try .init(gpa, io);
     defer resources.deinit(gpa);
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
@@ -1312,7 +1332,7 @@ test "lookup_newest" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var resources: Resources = try .init(gpa);
+    var resources: Resources = try .init(gpa, io);
     defer resources.deinit(gpa);
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
@@ -1342,7 +1362,7 @@ test "file_with_full_stop" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var resources: Resources = try .init(gpa);
+    var resources: Resources = try .init(gpa, io);
     defer resources.deinit(gpa);
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
@@ -1390,7 +1410,7 @@ test "bundle" {
     var data2b: []const u8 = "";
 
     {
-        var resources: Resources = try .init(gpa);
+        var resources: Resources = try .init(gpa, io);
         defer resources.deinit(gpa);
         _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
@@ -1445,7 +1465,7 @@ test "bundle" {
     defer gpa.free(data2);
 
     {
-        var resources: Resources = try .init(gpa);
+        var resources: Resources = try .init(gpa, io);
         defer resources.deinit(gpa);
         resources.used_resources = .empty;
         try resources.loadBundle(io, TEST_BUNDLE_FILENAME);

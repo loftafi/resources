@@ -479,8 +479,9 @@ test "addSentence" {
 
 test "wav_filename" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
 
-    var resources: Resources = try .init(gpa);
+    var resources: Resources = try .init(gpa, io);
     defer resources.deinit(gpa);
 
     {

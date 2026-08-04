@@ -1,6 +1,6 @@
 .{
     .name = .resources,
-    .version = "2.2.0",
+    .version = "3.0.0",
     .fingerprint = 0xef66ebae23b04127,
     .minimum_zig_version = "0.16.0",
 

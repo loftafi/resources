@@ -202,7 +202,7 @@ test "audio_to_ogg" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
 
-    var resources: Resources = try .init(gpa);
+    var resources: Resources = try .init(gpa, io);
     defer resources.deinit(gpa);
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
