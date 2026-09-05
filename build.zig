@@ -125,8 +125,6 @@ pub fn add_imports(
             if (target.result.abi.isAndroid()) {
                 // When building for android, we need to use the android linux headers
                 if (FindNDK.find(b.graph.io, b.graph.environ_map) catch null) |android_ndk| {
-                    std.log.info("Using android c headers: {any}", .{android_ndk});
-
                     lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
                         android_ndk,
                         "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/",

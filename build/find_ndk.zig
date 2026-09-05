@@ -12,7 +12,7 @@ pub const FindNDK = struct {
             if (found == null) {
                 std.log.debug("ANDROID_NDK_HOME not set", .{});
             } else {
-                std.log.info("found ANDROID_NDK_HOME: {s}", .{found.?});
+                std.log.debug("found ANDROID_NDK_HOME: {s}", .{found.?});
                 ndk = found;
                 return ndk;
             }
@@ -138,9 +138,10 @@ pub const FindNDK = struct {
     }
 
     const ndk_versions = [_][]const u8{
-        "29.0.13846066", // Pre-release
-        "28.2.13676358", // Stable
-        "27.3.13750724", // LTS
+        "30.0.16138531",
+        "29.0.13846066",
+        "28.2.13676358",
+        "27.3.13750724",
         "27.0.12077973",
         "25.1.8937393",
         "23.2.8568313",
