@@ -4,28 +4,27 @@ var ndk: ?[]const u8 = null;
 /// Attempt to find the location of the NDK. Searches ANDROID_NDK_HOME,
 /// ANDROID_SDK_ROOT, and standard locations inside the user home folder.
 pub const FindNDK = struct {
-    pub fn find(io: std.Io, env: std.process.Environ.Map) !?[]const u8 {
+    pub fn find(io: std.Io, env: *const std.process.Environ.Map) !?[]const u8 {
         if (ndk != null) return ndk;
 
         // Firstly just check ANDROID_NDK_HOME
         if (find_android_ndk_home(io, env)) |found| {
             if (found == null) {
-                std.log.debug("ANDROID_NDK_HOME not set", .{});
+                debug("ANDROID_NDK_HOME not set, try ANDROID_SDK_ROOT", .{});
             } else {
-                std.log.debug("found ANDROID_NDK_HOME: {s}", .{found.?});
                 ndk = found;
                 return ndk;
             }
         } else |e| {
-            std.log.err("error reading ANDROID_NDK_HOME: {any}", .{e});
+            err("error reading ANDROID_NDK_HOME: {t}", .{e});
         }
 
         // If ANDROID_NDK_HOME, see if we can find ndk in the ANDROID_SDK_ROOT
         if (find_android_sdk_root(io, env)) |d| {
             if (d == null) {
-                std.log.debug("ANDROID_SDK_ROOT not set", .{});
+                debug("ANDROID_SDK_ROOT not set, try known locations.", .{});
             } else {
-                std.log.debug("ANDROID_SDK_ROOT is set", .{});
+                debug("ANDROID_SDK_ROOT is set", .{});
                 defer d.?.close(io);
                 if (d.?.openDir(io, "ndk", .{})) |dir| {
                     // check for ndk inside ANDROID_SDK_ROOT
@@ -35,32 +34,35 @@ pub const FindNDK = struct {
                         return found.?;
                     }
                 } else |e| {
-                    std.log.err("no ndk in ANDROID_SDK_ROOT: {any}", .{e});
+                    err("no ndk in ANDROID_SDK_ROOT: {t}", .{e});
                 }
             }
         } else |e| {
-            std.log.err("error reading ANDROID_SDK_ROOT: {any}", .{e});
+            err("error reading ANDROID_SDK_ROOT: {t}", .{e});
         }
 
         // NDK not found by checking environment variables. Can we find
         // it in the user home folder?
 
         const home = find_user_home(io, env) catch |e| {
-            std.log.err("error detecting user home folder: {any}", .{e});
+            err("error detecting user home folder: {t}", .{e});
             return null;
         };
         if (home == null) {
-            std.log.err("ndk not found. No HOME or USERPROFILE set.", .{});
+            err("ndk not found. No HOME or USERPROFILE set.", .{});
             return null;
         }
         const base = "Library/Android/sdk/ndk/";
         const ndk_base = home.?.openDir(io, base, .{}) catch |e| {
-            std.log.err("ndk not found. Error {any} reading {any}/{s}", .{ e, home, base });
+            err("ndk not found. Error {any} reading user home base={s}", .{ e, base });
             return null;
         };
         defer ndk_base.close(io);
 
         ndk = try search_ndk_folder(io, ndk_base);
+        if (ndk) |path| {
+            debug("ndk found in known location {s}", .{path});
+        }
         return ndk;
     }
 
@@ -69,10 +71,9 @@ pub const FindNDK = struct {
             if (ndk_base.openDir(io, version, .{})) |d| {
                 defer d.close(io);
                 ndk = buffer[0..try d.realPath(io, &buffer)];
-                std.log.info("ndk version {s} found at {s}", .{ version, ndk.? });
                 return ndk;
             } else |_| {
-                //std.log.sdebug("ndk version {s} not found", .{version});
+                //debug("ndk version {s} not found", .{version});
                 continue;
             }
         }
@@ -82,14 +83,14 @@ pub const FindNDK = struct {
     /// If ANDROID_NDK_HOME is set, just use that
     fn find_android_ndk_home(
         io: std.Io,
-        env: std.process.Environ.Map,
+        env: *const std.process.Environ.Map,
     ) !?[]const u8 {
         const home = env.get("ANDROID_NDK_HOME");
         if (home == null) {
             return null;
         }
         const d = std.Io.Dir.openDirAbsolute(io, home.?, .{}) catch {
-            std.log.warn("Failed to read ANDROID_NDK_HOME directory {any}", .{home.?});
+            warn("Failed to read ANDROID_NDK_HOME directory {s}", .{home.?});
             return null;
         };
         defer d.close(io);
@@ -99,14 +100,14 @@ pub const FindNDK = struct {
     /// If ANDROID_SDK_ROOT is set, just use that
     fn find_android_sdk_root(
         io: std.Io,
-        env: std.process.Environ.Map,
+        env: *const std.process.Environ.Map,
     ) !?std.Io.Dir {
         const home = env.get("ANDROID_SDK_ROOT");
         if (home == null) {
             return null;
         }
         const d = std.Io.Dir.openDirAbsolute(io, home.?, .{}) catch {
-            std.log.warn("Failed to read ANDROID_SDK_ROOT directory {any}", .{home.?});
+            warn("Failed to read ANDROID_SDK_ROOT directory {s}", .{home.?});
             return null;
         };
         return d;
@@ -115,12 +116,12 @@ pub const FindNDK = struct {
     /// Sometimes, the NDK is in the users home folder
     fn find_user_home(
         io: std.Io,
-        env: std.process.Environ.Map,
+        env: *const std.process.Environ.Map,
     ) !?std.Io.Dir {
         const home = env.get("HOME");
         if (home != null) {
             const d = std.Io.Dir.openDirAbsolute(io, home.?, .{}) catch {
-                std.log.warn("Failed to read directory {any}", .{home.?});
+                warn("Failed to read directory {s}", .{home.?});
                 return null;
             };
             return d;
@@ -129,7 +130,7 @@ pub const FindNDK = struct {
         const up = env.get("UserProfile");
         if (up != null) {
             const d = std.Io.Dir.openDirAbsolute(io, up.?, .{}) catch {
-                std.log.warn("Failed to read directory {any}", .{up.?});
+                warn("Failed to read directory {s}", .{up.?});
                 return null;
             };
             return d;
@@ -138,11 +139,13 @@ pub const FindNDK = struct {
     }
 
     const ndk_versions = [_][]const u8{
-        "30.0.16138531",
-        "29.0.13846066",
-        "28.2.13676358",
-        "27.3.13750724",
-        "27.0.12077973",
+        "30.0.16248370", // release
+        "30.0.16138531", // rc2
+        "29.0.14206865", // release
+        "29.0.13846066", // rc3
+        "28.2.13676358", // release
+        "27.3.13750724", // release
+        "27.0.12077973", // release
         "25.1.8937393",
         "23.2.8568313",
         "23.1.7779620",
@@ -152,3 +155,6 @@ pub const FindNDK = struct {
 };
 
 const std = @import("std");
+const err = std.log.err;
+const warn = std.log.warn;
+const debug = std.log.debug;

@@ -124,7 +124,7 @@ pub fn add_imports(
         .linux => {
             if (target.result.abi.isAndroid()) {
                 // When building for android, we need to use the android linux headers
-                if (FindNDK.find(b.graph.io, b.graph.environ_map) catch null) |android_ndk| {
+                if (FindNDK.find(b.graph.io, &b.graph.environ_map) catch null) |android_ndk| {
                     lib.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{
                         android_ndk,
                         "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include/",
@@ -148,4 +148,4 @@ pub fn add_imports(
     }
 }
 
-pub const FindNDK = @import("build/find_ndk.zig").FindNDK;
+pub const FindNDK = @import("build/FindNDK.zig").FindNDK;
