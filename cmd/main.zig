@@ -92,7 +92,7 @@ pub fn main(init: std.process.Init) !void {
         var match: Resources.Match = .unaccented;
         var keyword: ?[]const u8 = null;
 
-        var bucket = try Resources.init(init.arena.allocator());
+        var bucket = try Resources.init(init.arena.allocator(), init.io);
         defer bucket.deinit(init.arena.allocator());
 
         try load_resource_set(init.gpa, io, &bucket, &config);
@@ -150,7 +150,7 @@ pub fn main(init: std.process.Init) !void {
             return;
         }
 
-        var bucket = try Resources.init(init.arena.allocator());
+        var bucket = try Resources.init(init.arena.allocator(), init.io);
         defer bucket.deinit(init.arena.allocator());
 
         try load_resource_set(init.gpa, io, &bucket, &config);
@@ -159,7 +159,7 @@ pub fn main(init: std.process.Init) !void {
             .image = .jpg,
             .audio = .ogg,
             .max_image_size = .{ .width = 1000, .height = 1000 },
-            .normalise_audio = true,
+            .normalise_audio = 0.95,
         };
 
         make_resource_bundle(init.gpa, io, &bucket, &options, &config, bundle_name.?) catch |e| {
@@ -396,7 +396,7 @@ fn timestamp(
     writer: *std.Io.Writer,
 ) !void {
     _ = env;
-    const now = try zeit.instant(io, .{});
+    const now = zeit.instant(.{ .now = io }, &zeit.utc);
     const local = try zeit.local(allocator, io, .{});
     defer local.deinit();
     const now_local = now.in(&local);

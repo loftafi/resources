@@ -1,6 +1,6 @@
 .{
     .name = .resources,
-    .version = "3.0.5",
+    .version = "3.1.0",
     .fingerprint = 0xef66ebae23b04127,
     .minimum_zig_version = "0.16.0",
 
@@ -10,8 +10,8 @@
             .hash = "praxis-0.12.0-FPf2NfAZBwCewsWilBeLkN8e59oqdIgsKFqSJIYmqtvg",
         },
         .zeit = .{
-            .url = "git+https://github.com/rockorager/zeit#ed64c36035fe44d6372c20cbcd447b0090687167",
-            .hash = "zeit-0.10.0-dev-5I6bk4i0AgANIwpoMN_iBL-OGEpyDuInvQLfrPe_FVb1",
+            .url = "git+https://github.com/rockorager/zeit#bab6f4d9c33632bd30c7ea92d0bbb4ccfbab6185",
+            .hash = "zeit-0.10.0-dev-5I6bk9K9AgDpuPWKuK5-TLORLy6rZHyeOr9wKDDSs5Ap",
         },
         .zg = .{
             .url = "git+https://codeberg.org/loftafi/zg-17-compatibility#fc1876b873b75d33266f56baf1ac1bdeb13d70a3",
