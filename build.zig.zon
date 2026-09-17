@@ -1,13 +1,13 @@
 .{
     .name = .resources,
-    .version = "3.1.0",
+    .version = "3.2.0",
     .fingerprint = 0xef66ebae23b04127,
     .minimum_zig_version = "0.16.0",
 
     .dependencies = .{
         .praxis = .{
-            .url = "git+https://github.com/loftafi/praxis#d5dcda67ca2c85ac3cf1ec8a2b61319c7e08b1f3",
-            .hash = "praxis-0.12.0-FPf2NfAZBwCewsWilBeLkN8e59oqdIgsKFqSJIYmqtvg",
+            .url = "git+https://github.com/loftafi/praxis#a82baebfb4de5ed83a54bb97a50e20686b49144e",
+            .hash = "praxis-0.12.1-FPf2NfAZBwBBDORSGvO1JY6rGXB5A3cnO8GT2GxY-3gz",
         },
         .zeit = .{
             .url = "git+https://github.com/rockorager/zeit#bab6f4d9c33632bd30c7ea92d0bbb4ccfbab6185",
@@ -18,8 +18,8 @@
             .hash = "zg-0.16.3-oGqU3MqgtgIlKNe61nFKPXdSz4_zN5R8FRwqgDahiALS",
         },
         .zstbi = .{
-            .url = "git+https://github.com/zaddok/zstbi.git#456b7620bf8036d29454d98cb506e0428e6510ae",
-            .hash = "zstbi-0.11.0-dev-L0Ea_06WBwCZoJBl6SD0bcHOLEEIrD5xbQ0TbXe-SQ5Y",
+            .url = "git+https://codeberg.org/loftafi/zstbi#f58ac7568609761af3f7301b619f2ff53d919dc2",
+            .hash = "zstbi-0.11.1-L0Ea_wSVBwBtcQKXfHPZHDvZooQAP9XiTOi2Uhl-T4AQ",
         },
         .wav = .{
             .url = "git+https://github.com/loftafi/wav.git#e2aece6959dfb1d40b58e874d42f63e0eb4ccaa4",

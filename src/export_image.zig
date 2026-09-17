@@ -28,7 +28,7 @@ pub fn exportImage(
     if (image_type != .png and image_type != .jpg)
         return error.ExportsJpgOrPngOnly;
 
-    zstbi.init(allocator, io);
+    zstbi.init(io, allocator);
     defer zstbi.deinit();
 
     // Read the raw image data
