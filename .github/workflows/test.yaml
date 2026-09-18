@@ -15,14 +15,4 @@ jobs:
           version: master
       - run: sudo apt install -y ffmpeg
       - run: zig build test
-  test-ubuntu-16:
-    runs-on: ubuntu-latest
-    name: Build and Test Resources (Zig 0.16)
-    steps:
-      - uses: actions/checkout@v3
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
-      - run: sudo apt install -y ffmpeg
-      - run: zig build test
 
