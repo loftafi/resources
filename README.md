@@ -9,7 +9,7 @@ of the original file to make copyright and licence management easier.
 This project provides a command line tool for collecting resources, and a zig
 api for in game access to these resources.
 
-See the Zig [API documentation](https://loftafi.github.io/resources/docs/) for
+See the Zig [API documentation](https://loftafi.github.io/resources/) for
 API details.
 
 ## ⚡️ Introduction
