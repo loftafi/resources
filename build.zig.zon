@@ -14,8 +14,8 @@
             .hash = "zeit-0.10.0-dev-5I6bk9K9AgDpuPWKuK5-TLORLy6rZHyeOr9wKDDSs5Ap",
         },
         .zg = .{
-            .url = "git+https://codeberg.org/loftafi/zg-17-compatibility#161c66ac027c69e2d51e330b9e5719ca7f3fe652",
-            .hash = "zg-0.16.3-2-oGqU3OmgtgIHSqz_7LuiXHkaHJ4XXB4DlSBsg25jpav0",
+            .url = "git+https://codeberg.org/loftafi/zg-17-compatibility#4c3579d81d66cd861bfe395df06a51fb01e3728e",
+            .hash = "zg-0.16.3-3-oGqU3B-itgL51X4_tkbhXt98oSouAV8lXcQSuIUa1MyI",
         },
         .zstbi = .{
             .url = "git+https://codeberg.org/loftafi/zstbi#f58ac7568609761af3f7301b619f2ff53d919dc2",
