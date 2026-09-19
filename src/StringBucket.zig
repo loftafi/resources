@@ -1,3 +1,4 @@
+/// Allocate one copy of a string and retain it until `deinit` is requested.
 pub const StringBucket = @This();
 
 const max_fmt_buffer = 1000;
@@ -22,8 +23,9 @@ pub fn deinit(self: *StringBucket) void {
     self.* = undefined;
 }
 
-/// Create a copy of the input text (if needed), or return a copy we
-/// already created previously.
+/// Create a copy of the input `text` if it is not already in the bucket. If
+/// this string is already in the bucket, return the existing copy from the
+/// bucket.
 pub fn add(self: *StringBucket, text: []const u8) error{OutOfMemory}![]const u8 {
     if (text.len == 0) return "";
 
@@ -37,6 +39,9 @@ pub fn add(self: *StringBucket, text: []const u8) error{OutOfMemory}![]const u8 
     }
 }
 
+/// Create a copy of the input `text` if it is not already in the bucket. If
+/// this string is already in the bucket, return the existing copy from the
+/// bucket.
 pub fn addZ(self: *StringBucket, text: []const u8) error{OutOfMemory}![:0]const u8 {
     if (text.len >= max_fmt_buffer - 1) return error.OutOfMemory;
     if (text.len == 0) return "";
@@ -57,7 +62,7 @@ pub fn addZ(self: *StringBucket, text: []const u8) error{OutOfMemory}![:0]const 
     }
 }
 
-/// Build and add a string to the bucket using a zig fmt string pattern.
+/// Add a formatted string into the bucket. i.e. `addFmt("name={s}", .{name})`.
 pub fn addFmt(
     self: *StringBucket,
     comptime fmt: []const u8,

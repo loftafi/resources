@@ -1,19 +1,3 @@
-pub const ScaleMode = enum {
-    /// fit. Decrease the image size if it is too wide or high.
-    fit,
-
-    /// fill. Increase the image size if there is width and height we can grow into.
-    fill,
-
-    /// Expand to fill the entire bounding box and crop edges.
-    cover,
-};
-
-pub const Size = struct {
-    width: u32,
-    height: u32,
-};
-
 /// export an image resource into a specific `dst` folder bounded to a specific
 /// width and height.
 pub fn exportImage(
@@ -119,6 +103,24 @@ pub fn exportImage(
     if (buffer.failed) return error.ImageConversionError;
     return buffer.data.toOwnedSlice(allocator);
 }
+
+/// Describe if an image should be scaled when exporting an image.
+pub const ScaleMode = enum {
+    /// fit. Decrease the image size if it is too wide or high.
+    fit,
+
+    /// fill. Increase the image size if there is width and height we can grow into.
+    fill,
+
+    /// Expand to fill the entire bounding box and crop edges.
+    cover,
+};
+
+/// Describe the width and hight of an image being exported.
+pub const Size = struct {
+    width: u32,
+    height: u32,
+};
 
 const Buffer = struct {
     allocator: Allocator,

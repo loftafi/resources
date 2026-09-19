@@ -1,8 +1,9 @@
 /// Read each `Setting` line-by-line from a `Parser`.
 pub const Setting = @This();
 
-/// Describes an individual metadata entry in a metadata file.
+/// The name of a metadata field in a metadata file.
 setting: Type,
+/// The value of a metadata entry in a metadata file.
 value: []const u8,
 
 /// Read a setting from a `Parser`. Returns null if the data contains no
@@ -34,6 +35,7 @@ pub fn next(parser: *Parser) error{InvalidUtf8}!?Setting {
     };
 }
 
+/// Valid field types in a resource metadata file.:
 pub const Type = enum {
     unknown,
     uid,

@@ -1,12 +1,16 @@
-//! This zig module supports collecting, searching, and bundling resources
-//! into a bundle for distribution. The most common use case for this is
-//! a game that wishes to pack all game reosurces into an individual bundle
-//! file. Attach metadata such as copyright information and an optional link
-//! to the source of the original file to make copyright and licence
-//! management easier.
+//! Import, index, search, and bundling a directory of resources.
+//! Collects all required resources into a bundle for for distribution.
+//!
+//! Each resource in the resource folder has an associated `.txt` metadata
+//! file containing information about the resource such as copyright
+//! information, and an optional link to the original source.
 
+/// Loads and index one or more folders or resource bundles.
 pub const Resources = @import("Resources.zig");
+
+/// Describes an on disk or in bundle resource.
 pub const Resource = @import("Resource.zig");
+
 pub const Normalize = Resources.Normalize;
 pub const Size = Resources.Size;
 pub const Type = @import("Type.zig").Type;

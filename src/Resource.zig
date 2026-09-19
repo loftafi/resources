@@ -30,13 +30,13 @@ sentences: ArrayListUnmanaged([]const u8),
 /// The type of data found in this resource.
 resource: Type,
 
-// Name of actual file, or bundle filename containing the file.
+/// Name of actual file, or bundle filename containing the file.
 filename: ?[:0]u8 = null,
 
-// If this record is inside a bundle, what is the byte offset for this resource.
+/// If this record is inside a bundle, what is the byte offset for this resource.
 bundle_offset: ?u64 = null,
 
-// If this record is inside a bundle, what is the byte length of this resource.
+/// If this record is inside a bundle, what is the byte length of this resource.
 size: usize = 0,
 
 pub const empty: Resource = .{

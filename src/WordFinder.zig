@@ -3,6 +3,7 @@ pub const WordFinder = @This();
 
 data: []const u8 = "",
 
+/// Initialise with a strong to be trimmed and tokenized.
 pub fn init(data: []const u8) WordFinder {
     return .{
         .data = data,
@@ -21,7 +22,7 @@ pub fn next(self: *WordFinder) error{
 }!?[]const u8 {
     if (self.data.len == 0) return null;
 
-    while (self.data.len > 0 and is_not_word(self.data[0])) {
+    while (self.data.len > 0 and isNotWord(self.data[0])) {
         self.data.ptr += 1;
         self.data.len -= 1;
     }
@@ -29,7 +30,7 @@ pub fn next(self: *WordFinder) error{
     while (self.data.len > 0) {
         const l: usize = try unicode.utf8ByteSequenceLength(self.data[0]);
         const c: u21 = try unicode.utf8Decode(self.data[0..l]);
-        if (!is_not_word(c)) break;
+        if (!isNotWord(c)) break;
         self.data.ptr += l;
         self.data.len -= l;
     }
@@ -38,7 +39,7 @@ pub fn next(self: *WordFinder) error{
     while (self.data.len > end) {
         const l: usize = try unicode.utf8ByteSequenceLength(self.data[end]);
         const c: u21 = try unicode.utf8Decode(self.data[end..(end + l)]);
-        if (is_not_word(c)) break;
+        if (isNotWord(c)) break;
         end += l;
     }
     if (end == 0) return null;
@@ -49,7 +50,7 @@ pub fn next(self: *WordFinder) error{
     return token;
 }
 
-pub inline fn is_not_word(c: u21) bool {
+inline fn isNotWord(c: u21) bool {
     return c < '0' or (c > '9' and c < 'A') or (c > 'Z' and c < 'a') or
         c == '·' or c == '•' or c == '–' or c == '—';
 }
