@@ -1517,7 +1517,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualDeep = std.testing.expectEqualDeep;
 const expectEqualStrings = std.testing.expectEqualStrings;
-
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const log = std.log;
 const warn = std.log.warn;
@@ -1525,13 +1524,14 @@ const err = std.log.err;
 const debug = std.log.debug;
 const eql = @import("std").mem.eql;
 const Allocator = std.mem.Allocator;
+
 pub const Normalize = @import("Normalize");
 
 pub const UniqueWords = @import("UniqueWords.zig");
-pub const random = @import("random.zig");
+const random = @import("root.zig").random;
 const exportImage = @import("export_image.zig").exportImage;
 
-pub const Resource = @import("Resource.zig");
+const Resource = @import("Resource.zig");
 const load_file_bytes = Resource.load_file_bytes;
 const load_file_byte_slice = Resource.load_file_byte_slice;
 const load_folder_file_bytes = Resource.load_folder_file_bytes;
@@ -1549,11 +1549,10 @@ const Normaliser = @import("praxis").Normaliser;
 
 const generate_ogg_audio = @import("export_audio.zig").generate_ogg_audio;
 const Size = @import("export_image.zig").Size;
-
 const StringBucket = @import("StringBucket.zig");
 
 pub const Wav = @import("wav").Wav;
-pub const base62 = @import("base62.zig");
+const base62 = @import("root.zig").base62;
 
 const BinaryReader = @import("binary_reader.zig");
 const BinaryWriter = @import("binary_writer.zig");
