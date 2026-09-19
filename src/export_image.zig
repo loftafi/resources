@@ -428,7 +428,7 @@ test "export_image" {
         defer gpa.free(data);
 
         try expectEqual(22611, data.len);
-        try write_folder_file_bytes(io, tmp, "test.jpg", data);
+        try writeFile(io, tmp, "test.jpg", data);
     }
 
     {
@@ -448,7 +448,7 @@ test "export_image" {
 
         try expectEqual(9774, data2.len);
 
-        try write_folder_file_bytes(io, tmp, "test.png", data2);
+        try writeFile(io, tmp, "test.png", data2);
     }
 }
 
@@ -468,4 +468,4 @@ const Type = @import("root.zig").Type;
 const zstbi = @import("zstbi");
 const Image = zstbi.Image;
 
-const write_folder_file_bytes = Resource.write_folder_file_bytes;
+const writeFile = Resource.writeFile;

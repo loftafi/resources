@@ -7,21 +7,36 @@ pub const max_filename_length = 1024 * 2;
 /// directory of files or a bundle of files (archive).
 pub const Resource = @This();
 
+/// A randomly generated unique resource uid.
 uid: u64,
+
+/// A deprecated resource is marked not visible.
 visible: bool,
+
+/// Date of resource ingestion.
 date: usize,
+
+/// A brief string describing the copyright ownership. Use this to track
+/// the ownership of contents of a resource bundle.
 copyright: ?[]const u8,
+
+/// Optional link to the original source of a resource.
 link: ?[]const u8,
+
+/// A resource should have one or more "file names" or "descriptions" through
+/// which this resource can be retrieved.
 sentences: ArrayListUnmanaged([]const u8),
 
+/// The type of data found in this resource.
 resource: Type,
 
 // Name of actual file, or bundle filename containing the file.
 filename: ?[:0]u8 = null,
 
-// bundle resources has a bundle offset
+// If this record is inside a bundle, what is the byte offset for this resource.
 bundle_offset: ?u64 = null,
 
+// If this record is inside a bundle, what is the byte length of this resource.
 size: usize = 0,
 
 pub const empty: Resource = .{
@@ -110,7 +125,7 @@ pub fn load(
 
     if (data.len != data_nfc.slice.len) {
         warn("metadata file {s} is not nfc.", .{metadata_file});
-        write_file_bytes(io, filename, data_nfc.slice) catch {
+        writeFile(io, std.Io.Dir.cwd(), filename, data_nfc.slice) catch {
             warn("update metadata file {s} to nfc failed.", .{metadata_file});
         };
     }
@@ -309,15 +324,9 @@ pub fn trimSentence(sentence: []const u8) ?[]const u8 {
     return trimmed;
 }
 
-pub fn write_file_bytes(
-    io: std.Io,
-    filename: []const u8,
-    data: []const u8,
-) (Allocator.Error || std.Io.Writer.Error || std.Io.File.OpenError || std.Io.Dir.RenameError || std.Io.File.Writer.Error)!void {
-    try write_folder_file_bytes(io, std.Io.Dir.cwd(), filename, data);
-}
-
-pub fn write_folder_file_bytes(
+/// Write a file to a folder by first successfully writing the data into a
+/// tempory file, then replacing the destination file.
+pub fn writeFile(
     io: std.Io,
     folder: std.Io.Dir,
     filename: []const u8,
@@ -441,7 +450,7 @@ test "test_write_file" {
     const data = "this is a test\n";
     const filename = "test.dat";
 
-    try write_folder_file_bytes(io, tmp.dir, filename, data);
+    try writeFile(io, tmp.dir, filename, data);
     const read = try load_folder_file_bytes(gpa, io, tmp.dir, filename);
     defer std.testing.allocator.free(read);
     try expectEqualStrings(data, read);
@@ -600,25 +609,21 @@ test "readMetadata" {
 
 const std = @import("std");
 const err = std.log.err;
+const warn = std.log.warn;
 const debug = std.log.debug;
-
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
-
-const warn = std.log.warn;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Allocator = std.mem.Allocator;
 
 const Normalize = @import("Normalize");
+const Parser = @import("praxis").Parser;
 
-const base62 = @import("base62.zig");
-
-pub const random = @import("random.zig");
-
+const base62 = @import("root.zig").base62;
+const random = @import("root.zig").random;
 const Setting = @import("Setting.zig");
 const Type = @import("root.zig").Type;
 const Resources = @import("Resources.zig");
-const Parser = @import("praxis").Parser;
 
 const StringBucket = @import("StringBucket.zig");

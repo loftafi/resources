@@ -47,11 +47,15 @@ bundle_files: std.ArrayListUnmanaged([]const u8) = .empty,
 /// When not null, every `Resource` loaded with `loadResource` is
 /// placed into this list.
 used_resources: ?std.AutoHashMapUnmanaged(u64, *const Resource),
+
+/// Lock `used_resources` access for thread safety.
 used_resources_rwlock: std.Io.RwLock,
 
 /// Hold a cache of resource copyright strings in a bucket.
 string_bucket: StringBucket,
 
+/// Apply read lock to resource lookups to ensure thread safety
+/// when reading or writing to the resource indexes.
 rwlock: std.Io.RwLock,
 
 io: std.Io,
@@ -326,7 +330,7 @@ pub fn saveBundle(
                 };
                 std.log.info("generated ogg for {s} size={Bi:.2}", .{ name, processed.len });
                 defer gpa.free(processed);
-                try write_folder_file_bytes(io, cache_dir, name, processed);
+                try writeFile(io, cache_dir, name, processed);
                 add_size = processed.len;
             }
             add_cache = true;
@@ -351,7 +355,7 @@ pub fn saveBundle(
                 };
                 defer gpa.free(processed);
                 debug("generated jpg {s} for {t} ({d} to {d} bytes)", .{ filename, resource.resource, add_size, processed.len });
-                try write_folder_file_bytes(io, cache_dir, name, processed);
+                try writeFile(io, cache_dir, name, processed);
                 add_size = processed.len;
             }
             add_cache = true;
@@ -376,7 +380,7 @@ pub fn saveBundle(
                 };
                 defer gpa.free(processed);
                 debug("generated jpg {s} for {t} ({d} to {d} bytes)", .{ filename, resource.resource, add_size, processed.len });
-                try write_folder_file_bytes(io, cache_dir, name, processed);
+                try writeFile(io, cache_dir, name, processed);
                 add_size = processed.len;
             }
             add_cache = true;
@@ -1531,7 +1535,7 @@ pub const Resource = @import("Resource.zig");
 const load_file_bytes = Resource.load_file_bytes;
 const load_file_byte_slice = Resource.load_file_byte_slice;
 const load_folder_file_bytes = Resource.load_folder_file_bytes;
-const write_folder_file_bytes = Resource.write_folder_file_bytes;
+const writeFile = Resource.writeFile;
 const cache_has_file = Resource.cache_has_file;
 const trimSentence = Resource.trimSentence;
 const lessThan = Resource.lessThan;

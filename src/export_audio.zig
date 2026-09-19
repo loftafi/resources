@@ -221,7 +221,7 @@ test "audio_to_ogg" {
 
     var tmp = try std.Io.Dir.cwd().openDir(io, "/tmp/", .{});
     defer tmp.close(io);
-    try write_folder_file_bytes(io, tmp, "test.ogg", data);
+    try writeFile(io, tmp, "test.ogg", data);
 }
 
 const std = @import("std");
@@ -240,6 +240,6 @@ const Resources = @import("Resources.zig");
 const Resource = @import("Resource.zig");
 const SaveOptions = Resources.SaveOptions;
 const base62 = @import("base62.zig");
-const write_folder_file_bytes = Resource.write_folder_file_bytes;
+const writeFile = Resource.writeFile;
 
 const Wav = @import("wav").Wav;
