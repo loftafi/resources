@@ -312,8 +312,6 @@ pub fn saveBundle(
         var add_type = resource.resource;
         var add_cache = false;
 
-        //std.log.info("output file: {s} size={d}", .{ uid, size });
-
         const stat = try file.stat(io);
         if (options.preserveResource(resource.uid)) {
             add_size = stat.size;
@@ -533,7 +531,12 @@ pub fn loadDirectory(
     Utf8CodepointTooLarge,
 } || std.Io.File.OpenError || std.Io.File.StatError || std.fmt.BufPrintError || Error)!bool {
     var dir = std.Io.Dir.cwd().openDir(io, folder, .{ .iterate = true }) catch |e| {
-        log.warn("Load directory {s} failed. Error: {any}", .{ folder, e });
+        if (e == error.FileNotFound) {
+            err("Load directory '{s}' failed. Folder does not exist.", .{folder});
+            return error.RepoDirectoryNotFound;
+        } else {
+            err("Load directory '{s}' failed. Error: {any}", .{ folder, e });
+        }
         return false;
     };
     defer dir.close(io);
@@ -630,7 +633,7 @@ pub fn loadDirectory(
 fn unique_random_u64(self: *Resources, io: std.Io) error{ReadMetadataFailed}!u64 {
     var retry: usize = 0;
     var dir = std.Io.Dir.cwd().openDir(io, self.folder, .{}) catch |e| {
-        log.warn("Resource loader failed opening {s}. Error: {any}", .{ self.folder, e });
+        warn("Resource loader failed opening {s}. Error: {any}", .{ self.folder, e });
         return error.ReadMetadataFailed;
     };
     defer dir.close(io);
@@ -640,7 +643,7 @@ fn unique_random_u64(self: *Resources, io: std.Io) error{ReadMetadataFailed}!u64
         const uid = random.random_u64();
         const uid_string = base62.encode(u64, uid, &ubuffer);
         const filename = std.fmt.bufPrint(&buffer, "{s}.txt", .{uid_string}) catch |e| {
-            log.warn("unique_random_u64 has unexpected exception: {any}", .{e});
+            warn("unique_random_u64 has unexpected exception: {any}", .{e});
             unreachable;
         };
         _ = dir.statFile(io, filename, .{ .follow_symlinks = false }) catch |e| {
@@ -650,7 +653,7 @@ fn unique_random_u64(self: *Resources, io: std.Io) error{ReadMetadataFailed}!u64
             return error.ReadMetadataFailed;
         };
         retry += 1;
-        log.warn("uid generator generated non-unique uid. retry {d}.", .{retry});
+        warn("uid generator generated non-unique uid. retry {d}.", .{retry});
     }
 }
 
@@ -968,6 +971,7 @@ pub const Error = error{
     ReadRepoFileFailed,
     ReadMetadataFailed,
     InvalidResourceUID,
+    RepoDirectoryNotFound,
     MetadataMissing,
     FilenameTooLong,
     ResourceHasNoFilename,
@@ -1518,7 +1522,6 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualDeep = std.testing.expectEqualDeep;
 const expectEqualStrings = std.testing.expectEqualStrings;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const log = std.log;
 const warn = std.log.warn;
 const err = std.log.err;
 const debug = std.log.debug;
