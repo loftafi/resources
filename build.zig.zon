@@ -1,29 +1,29 @@
 .{
     .name = .resources,
-    .version = "3.3.0",
+    .version = "3.4.0",
     .fingerprint = 0xef66ebae23b04127,
     .minimum_zig_version = "0.16.0",
 
     .dependencies = .{
         .praxis = .{
-            .url = "git+https://github.com/loftafi/praxis#cefa67e67fe223c8022f048dd967b1da867d9439",
+            .url = "git+https://github.com/loftafi/praxis?ref=0.15.0#cefa67e67fe223c8022f048dd967b1da867d9439",
             .hash = "praxis-0.15.0-FPf2NZ8kBwCFuaOdL3_yRlK03tItydd7z5eUHLAuSjoi",
+        },
+        .wav = .{
+            .url = "git+https://github.com/loftafi/wav.git#e2aece6959dfb1d40b58e874d42f63e0eb4ccaa4",
+            .hash = "wav-0.1.0-HyV8ivC9BgC2FTx1Aq2WbPVBzwxsTDqHEKJAiK0dVs91",
         },
         .zeit = .{
             .url = "git+https://github.com/rockorager/zeit#bab6f4d9c33632bd30c7ea92d0bbb4ccfbab6185",
             .hash = "zeit-0.10.0-dev-5I6bk9K9AgDpuPWKuK5-TLORLy6rZHyeOr9wKDDSs5Ap",
         },
         .zg = .{
-            .url = "git+https://codeberg.org/loftafi/zg-17-compatibility#870f77d56d8b8e8c6964074958388eb8480a3926",
-            .hash = "zg-0.16.3-4-oGqU3EmitgKET-T280cibLA5dzsx_LTc1GnB8a0OYfTI",
+            .url = "git+https://codeberg.org/LmanTW/zg.git#b80d105b3861eba91bc18e5fb672959d5202fa26",
+            .hash = "zg-0.18.0-oGqU3NDboAJWkKoOlb6Vef0Xetezhcz8MftyLSNWfYls",
         },
         .zstbi = .{
             .url = "git+https://codeberg.org/loftafi/zstbi#f58ac7568609761af3f7301b619f2ff53d919dc2",
             .hash = "zstbi-0.11.1-L0Ea_wSVBwBtcQKXfHPZHDvZooQAP9XiTOi2Uhl-T4AQ",
-        },
-        .wav = .{
-            .url = "git+https://github.com/loftafi/wav.git#e2aece6959dfb1d40b58e874d42f63e0eb4ccaa4",
-            .hash = "wav-0.1.0-HyV8ivC9BgC2FTx1Aq2WbPVBzwxsTDqHEKJAiK0dVs91",
         },
     },
 

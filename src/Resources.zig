@@ -108,6 +108,7 @@ pub fn deinit(self: *Resources, _: Allocator) void {
 }
 
 /// Load the table of contents of a resource bundle into memory.
+/// Returns `error.RepoBundleNotFound` if the `folder` does not exist.
 ///
 /// Adding resources is not thread safe, so `loadBundle` is not  thread safe.
 pub fn loadBundle(
@@ -124,7 +125,16 @@ pub fn loadBundle(
     var rbuffer: [4196:0]u8 = undefined;
     const e = std.builtin.Endian.little;
 
-    var file = try std.Io.Dir.cwd().openFile(io, bundle_filename, .{});
+    var file = std.Io.Dir.cwd().openFile(io, bundle_filename, .{}) catch |f| switch (f) {
+        error.FileNotFound => {
+            err("Load bundle '{s}' failed. File does not exist.", .{bundle_file});
+            return error.RepoBundleNotFound;
+        },
+        else => |x| {
+            err("Load bundle '{s}' failed. Error: {any}", .{ bundle_file, x });
+            return x;
+        },
+    };
     defer file.close(io);
     var rb = file.reader(io, &rbuffer);
     const b1 = try rb.interface.takeInt(u8, e);
@@ -513,7 +523,8 @@ fn header_contains(items: []BundleResource, uid: u64) bool {
 
 /// Load the full list of usable files inside the `folder` along with
 /// any associated metadata files so that each file can be searched for
-/// and loaded.
+/// and loaded. Returns `error.RepoDirectoryNotFound` if the `folder`
+/// does not exist.
 ///
 /// Adding resources is not thread safe, so `loadBundle` is not  thread safe.
 pub fn loadDirectory(
@@ -530,14 +541,15 @@ pub fn loadDirectory(
     Utf8EncodesSurrogateHalf,
     Utf8CodepointTooLarge,
 } || std.Io.File.OpenError || std.Io.File.StatError || std.fmt.BufPrintError || Error)!bool {
-    var dir = std.Io.Dir.cwd().openDir(io, folder, .{ .iterate = true }) catch |e| {
-        if (e == error.FileNotFound) {
+    var dir = std.Io.Dir.cwd().openDir(io, folder, .{ .iterate = true }) catch |e| switch (e) {
+        error.FileNotFound => {
             err("Load directory '{s}' failed. Folder does not exist.", .{folder});
             return error.RepoDirectoryNotFound;
-        } else {
-            err("Load directory '{s}' failed. Error: {any}", .{ folder, e });
-        }
-        return false;
+        },
+        else => |x| {
+            err("Load directory '{s}' failed. Error: {any}", .{ folder, x });
+            return x;
+        },
     };
     defer dir.close(io);
 
@@ -967,23 +979,24 @@ pub const SearchCategory = enum {
 };
 
 pub const Error = error{
+    BundleTooShortToExtractFile,
+    Canceled,
     FailedReadingRepo,
-    ReadRepoFileFailed,
-    ReadMetadataFailed,
-    InvalidResourceUID,
-    RepoDirectoryNotFound,
-    MetadataMissing,
     FilenameTooLong,
-    ResourceHasNoFilename,
+    ImageConversionError,
+    InvalidBundleFile,
+    InvalidResourceUID,
+    MetadataMissing,
+    NormalisationFailed,
     QueryTooLong,
     QueryEmpty,
     QueryEncodingError,
-    InvalidBundleFile,
-    BundleTooShortToExtractFile,
+    ReadRepoFileFailed,
+    ReadMetadataFailed,
+    RepoBundleNotFound,
+    RepoDirectoryNotFound,
+    ResourceHasNoFilename,
     UnknownImageOrientation,
-    ImageConversionError,
-    NormalisationFailed,
-    Canceled,
 };
 
 /// `SaveOptions` provides export configuration options to `saveBundle()`.

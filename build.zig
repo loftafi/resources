@@ -16,6 +16,7 @@ pub fn build(b: *std.Build) void {
     add_imports(b, &target, zstbi_module);
 
     const zg = b.dependency("zg", .{ .target = target, .optimize = optimize });
+    const zg_normalise_module = zg.module("Normalize");
 
     const lib_mod = b.addModule("resources", .{
         .root_source_file = b.path("src/root.zig"),
@@ -25,7 +26,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "praxis", .module = praxis_module },
             .{ .name = "wav", .module = wav_module },
             .{ .name = "zstbi", .module = zstbi_module },
-            .{ .name = "Normalize", .module = zg.module("Normalize") },
+            .{ .name = "Normalize", .module = zg_normalise_module },
         },
     });
 
@@ -34,7 +35,6 @@ pub fn build(b: *std.Build) void {
         .name = "resources",
         .root_module = lib_mod,
     });
-
     b.installArtifact(lib);
 
     const tests = b.addTest(.{
@@ -46,7 +46,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "praxis", .module = praxis_module },
                 .{ .name = "wav", .module = wav_module },
                 .{ .name = "zstbi", .module = zstbi_module },
-                .{ .name = "Normalize", .module = zg.module("Normalize") },
+                .{ .name = "Normalize", .module = zg_normalise_module },
             },
         }),
         .filters = test_filters,
