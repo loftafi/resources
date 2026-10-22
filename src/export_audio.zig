@@ -19,6 +19,10 @@ pub fn generate_ogg_audio(
         return f;
     };
     defer gpa.free(data);
+    if (data.len == 0) {
+        err("Failed to read wav data for {d}. Empty file.", .{resource.uid});
+        return std.Io.Reader.Error.ReadFailed;
+    }
 
     if (options.normalise_audio) |max| {
         var audio = Wav.initWithMetadata(gpa, data) catch |f| {
@@ -50,6 +54,10 @@ pub fn generate_ogg_audio(
 fn locate_ffmpeg(io: std.Io) error{FfmpegFailure}![]const u8 {
     if (ffmpeg_binary != null) return ffmpeg_binary.?;
 
+    if (std.Io.Dir.cwd().statFile(io, "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg", .{})) |_| {
+        ffmpeg_binary = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg";
+        return ffmpeg_binary.?;
+    } else |_| {}
     if (std.Io.Dir.cwd().statFile(io, "/usr/bin/ffmpeg", .{})) |_| {
         ffmpeg_binary = "/usr/bin/ffmpeg";
         return ffmpeg_binary.?;
@@ -100,12 +108,15 @@ fn wav_to_ogg(
         return error.FfmpegFailure;
     };
 
-    const output = try pipe_data(
+    const output = pipe_data(
         gpa,
         io,
         &ffmpeg,
         wav_data,
-    );
+    ) catch |e| {
+        err("pipe_data {d} bytes to ffmpeg '{s}' failed. {t}", .{ wav_data.len, argv[0], e });
+        return e;
+    };
     errdefer gpa.free(output.stdout);
     defer gpa.free(output.stderr);
 
