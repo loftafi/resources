@@ -1,13 +1,13 @@
 .{
     .name = .resources,
-    .version = "3.5.2",
+    .version = "4.0.0",
     .fingerprint = 0xef66ebae23b04127,
-    .minimum_zig_version = "0.17.0",
+    .minimum_zig_version = "0.17.1",
 
     .dependencies = .{
         .praxis = .{
-            .url = "git+https://github.com/loftafi/praxis?ref=0.18.0#157372a46a2f9445424c3f4dd1df9dc7e5947d83",
-            .hash = "praxis-0.18.0-FPf2Na0kCABpxt0r44OqQirHnLnxMxNwkQxamj2P9mqt",
+            .url = "git+https://github.com/loftafi/praxis?ref=0.18.1#8128a3bc3dc3b381021aff213adba9c9aac7e550",
+            .hash = "praxis-0.18.1-FPf2NR4nCADfT4p9a1S0kiTLNJb6LAT4VX1m5wCTrixJ",
         },
         .wav = .{
             .url = "git+https://github.com/loftafi/wav.git#e2aece6959dfb1d40b58e874d42f63e0eb4ccaa4",

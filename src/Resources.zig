@@ -79,31 +79,14 @@ pub fn init(gpa: Allocator, io: std.Io) Allocator.Error!Resources {
 }
 
 /// Cleanup the arena and any short lived objects used by this struct.
-pub fn deinit(self: *Resources, _: Allocator) void {
-    if (self.used_resources) |*manifest|
-        manifest.deinit(self.arena.allocator());
-
-    // Iterate over the master resource list to
-    // free each resource.
-    var i = self.by_uid.iterator();
-    while (i.next()) |item|
-        item.value_ptr.*.destroy(self.arena.allocator());
-
-    self.by_uid.deinit(self.arena.allocator());
-
-    // Relese the other indexes into the resources
-    self.by_word.deinit(self.arena.allocator());
-    self.by_sentence.deinit(self.arena.allocator());
-    if (self.folder.len > 0)
-        self.arena.allocator().free(self.folder);
-
-    for (self.bundle_files.items) |item|
-        self.arena.allocator().free(item);
-    self.bundle_files.deinit(self.arena.allocator());
-
+pub fn deinit(self: *Resources) void {
+    // String bucket used the gpa and needs `deinit()`.
     self.string_bucket.deinit();
 
+    // All other objects are in the arena, so a simple
+    // `self.arena.deinit()` is all that is required here.
     self.arena.deinit();
+
     self.* = undefined;
 }
 
@@ -1148,7 +1131,7 @@ test init {
     const io = std.testing.io;
 
     var resources: Resources = try .init(gpa, io);
-    defer resources.deinit(gpa);
+    defer resources.deinit();
 
     try expectEqual(0, resources.by_uid.count());
     try expectEqual(0, resources.bundle_files.items.len);
@@ -1159,7 +1142,7 @@ test "load_resource image" {
     const io = std.testing.io;
 
     var resources: Resources = try .init(gpa, io);
-    defer resources.deinit(gpa);
+    defer resources.deinit();
 
     const file = "./test/repo/GzeBWE.png";
     const info = Resources.FilenameComponents.split(file);
@@ -1191,7 +1174,7 @@ test "load_resource audio" {
     const io = std.testing.io;
 
     var resources: Resources = try .init(gpa, io);
-    defer resources.deinit(gpa);
+    defer resources.deinit();
 
     const file = "./test/repo/jay~ἄρτος.wav";
     const info = Resources.FilenameComponents.split(file);
@@ -1223,7 +1206,7 @@ test "search resources" {
     const io = std.testing.io;
 
     var resources: Resources = try .init(gpa, io);
-    defer resources.deinit(gpa);
+    defer resources.deinit();
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
     var buffer: [10]*Resource = undefined;
@@ -1304,7 +1287,7 @@ test "ignore_not_visible" {
     const io = std.testing.io;
 
     var resources: Resources = try .init(gpa, io);
-    defer resources.deinit(gpa);
+    defer resources.deinit();
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
     var buffer: [10]*Resource = undefined;
@@ -1325,7 +1308,7 @@ test "font_lookup" {
     var buffer: [10]*Resource = undefined;
 
     var resources: Resources = try .init(gpa, io);
-    defer resources.deinit(gpa);
+    defer resources.deinit();
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
     {
@@ -1354,7 +1337,7 @@ test "lookup_newest" {
     const io = std.testing.io;
 
     var resources: Resources = try .init(gpa, io);
-    defer resources.deinit(gpa);
+    defer resources.deinit();
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
     {
@@ -1384,7 +1367,7 @@ test "file_with_full_stop" {
     const io = std.testing.io;
 
     var resources: Resources = try .init(gpa, io);
-    defer resources.deinit(gpa);
+    defer resources.deinit();
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
     var buffer: [10]*Resource = undefined;
@@ -1432,7 +1415,7 @@ test "bundle" {
 
     {
         var resources: Resources = try .init(gpa, io);
-        defer resources.deinit(gpa);
+        defer resources.deinit();
         _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
         try expectEqual(407, resources.by_sentence.index.count());
@@ -1487,7 +1470,7 @@ test "bundle" {
 
     {
         var resources: Resources = try .init(gpa, io);
-        defer resources.deinit(gpa);
+        defer resources.deinit();
         resources.used_resources = .empty;
         try resources.loadBundle(io, TEST_BUNDLE_FILENAME);
 

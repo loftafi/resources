@@ -408,7 +408,7 @@ test "export_image" {
     const io = std.testing.io;
 
     var resources: Resources = try .init(gpa, io);
-    defer resources.deinit(gpa);
+    defer resources.deinit();
     _ = try resources.loadDirectory(gpa, io, "./test/repo/", null);
 
     var tmp = try std.Io.Dir.cwd().openDir(io, "/tmp/", .{});

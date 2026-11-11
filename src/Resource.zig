@@ -491,7 +491,7 @@ test "wav_filename" {
     const io = std.testing.io;
 
     var resources: Resources = try .init(gpa, io);
-    defer resources.deinit(gpa);
+    defer resources.deinit();
 
     {
         const name = extract_wav_name("fish9.wav");
