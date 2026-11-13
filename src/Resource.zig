@@ -25,7 +25,7 @@ link: ?[]const u8,
 
 /// A resource should have one or more "file names" or "descriptions" through
 /// which this resource can be retrieved.
-sentences: ArrayListUnmanaged([]const u8),
+sentences: ArrayList([]const u8),
 
 /// The type of data found in this resource.
 resource: Type,
@@ -614,7 +614,7 @@ const debug = std.log.debug;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
 const Normalize = @import("Normalize");

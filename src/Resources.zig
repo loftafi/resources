@@ -42,7 +42,7 @@ arena: std.heap.ArenaAllocator,
 folder: []const u8 = "",
 
 /// If `loadBundle` was used, this is the path to the bundle.
-bundle_files: std.ArrayListUnmanaged([]const u8) = .empty,
+bundle_files: std.ArrayList([]const u8) = .empty,
 
 /// When not null, every `Resource` loaded with `loadResource` is
 /// placed into this list.
@@ -264,7 +264,7 @@ pub fn saveBundle(
     };
 
     // Step 1: Build the table of contents
-    var header_items: ArrayListUnmanaged(BundleResource) = .empty;
+    var header_items: ArrayList(BundleResource) = .empty;
     defer header_items.deinit(gpa);
 
     var header_size: usize = 1 + 1 + 1 + 3; // Count the header size
@@ -390,7 +390,7 @@ pub fn saveBundle(
         // Up to 254 sentences go into the bundle, except the UID sentence.
         var buffer: [40:0]u8 = undefined;
         const uid_string = base62.encode(u64, resource.uid, &buffer);
-        var sentences: ArrayListUnmanaged([]const u8) = .empty;
+        var sentences: ArrayList([]const u8) = .empty;
         defer sentences.deinit(gpa);
         for (resource.sentences.items, 0..) |sentence, count| {
             if (std.mem.eql(u8, uid_string, sentence)) continue;
@@ -445,7 +445,7 @@ pub fn saveBundle(
     // Step 2: Write the header and the contents into the bundle
 
     const version = 1;
-    var header: ArrayListUnmanaged(u8) = .empty;
+    var header: ArrayList(u8) = .empty;
     defer header.deinit(gpa);
     const b1 = @as(u8, @intCast(random.random(230) + 10));
     try append_u8(&header, b1, gpa);
@@ -545,7 +545,7 @@ pub fn loadDirectory(
 
     self.folder = try self.arena.allocator().dupeSentinel(u8, folder, 0);
 
-    var filename: ArrayListUnmanaged(u8) = .empty;
+    var filename: ArrayList(u8) = .empty;
     defer filename.deinit(gpa);
 
     var i = dir.iterate();
@@ -1517,7 +1517,7 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualDeep = std.testing.expectEqualDeep;
 const expectEqualStrings = std.testing.expectEqualStrings;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const warn = std.log.warn;
 const err = std.log.err;
 const debug = std.log.debug;

@@ -237,7 +237,6 @@ test "audio_to_ogg" {
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const assert = std.debug.assert;
 const info = std.log.info;
 const debug = std.log.debug;

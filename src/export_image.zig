@@ -124,7 +124,7 @@ pub const Size = struct {
 
 const Buffer = struct {
     allocator: Allocator,
-    data: std.ArrayListUnmanaged(u8) = .empty,
+    data: std.ArrayList(u8) = .empty,
     failed: bool = false,
 };
 
